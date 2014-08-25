@@ -1,0 +1,15 @@
+
+E {
+	->	E PLUS F ;
+	->	E MINUS F ;
+} 
+
+F {
+	-> T MUL F ;
+	-> T DIV F ;
+}
+
+T {
+ 	-> number ;
+ 	-> string ;
+}
