@@ -16,9 +16,9 @@ class Symbol(object):
 
     def __repr__(self):
         if self.resultType:
-            return "<Name: %s, Type: %s>" % (self.name, self.resultType)
+            return "<%s(%s)>" % (self.name, self.resultType)
         else:
-            return "<Name: %s>" % self.name
+            return "<%s>" % self.name
 
     def isNonTerminal(self):
         return len(self.productions) > 0
@@ -33,6 +33,14 @@ class SymbolUsage(object):
         self.symbol = symbol
         self.varname = varname
         self.isOptional = isOptional
+
+    def isNonTerminal(self):
+        return self.symbol.isNonTerminal()
+
+    def __repr__(self):
+        return "%s%s%s" % (("? " if self.isOptional else ""),
+                           (self.varname + ":" if self.varname else ""),
+                           self.symbol)
 
 
 class Production(object):
@@ -108,21 +116,21 @@ class Grammar(object):
                     nextNT = prod.symbolUsages[0].symbol
                     if nextNT not in indexes:
                         # not yet been visited so recurse on it
-                        strongconnect(nextNT, index, indexes, lowlink, stack)
+                        index, _ = strongconnect(nextNT, index, indexes, lowlink, stack)
                         lowlink[currNT] = min(lowlink[currNT], lowlink[nextNT])
                     elif nextNT in stack:
                         # success is in the stack so we are good
                         lowlink[currNT] = min(lowlink[currNT], lowlink[nextNT])
 
             scc = []
-            if lowlink[currNT] == indexes[currNT] and stack:
+            if lowlink[currNT] == indexes[currNT]:
                 # start a new strongly connected component
-                nextNT = stack.pop()
-                scc.append(nextNT)
-                while nextNT != currNT:
-                    nextNT = stack.pop()
+                while True:
+                    nextNT = stack.pop(0)
                     scc.append(nextNT)
-            return scc
+                    if nextNT == currNT:
+                        break
+            return index, scc
 
         out = []
         index = 0
@@ -132,6 +140,6 @@ class Grammar(object):
 
         for currNT in self.nonTerminals():
             if currNT not in indexes:
-                scc = strongconnect(currNT, index, indexes, lowlink, stack)
+                index, scc = strongconnect(currNT, index, indexes, lowlink, stack)
                 out.append(scc)
         return out

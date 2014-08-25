@@ -4,6 +4,8 @@
 import StringIO
 import grammar
 
+reload(grammar)
+
 TOKEN_ERROR = -1
 TOKEN_EOF = 0
 TOKEN_OPAREN = 1
