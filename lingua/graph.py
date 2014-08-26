@@ -51,28 +51,20 @@ def all_minimal_cycles(nodes, edge_functor):
     for node in nodes:
         # start from node and do a BFS to see what cycle a node appears in
         if node not in cycle_num:
-            parent_node = {}
             start_node = node
             visited = {}
-            parent_node[node] = None
-            queue = [(node, 0)]
+            queue = [(node, [node])]
             while queue:
-                node, level = queue.pop(0)
+                node, cycle = queue.pop(0)
                 assert node is not None
-                for nextNode in edge_functor(node):
+                for nextNode in set(edge_functor(node)):
                     if nextNode == start_node:
                         # we have a cycle
-                        cycle = []
-                        while node is not None:
-                            cycle_num[node] = cycle_count
-                            cycle.append(node)
-                            node = parent_node[node]
                         if cycle:
-                            cycle.reverse()
+                            cycle_num[node] = cycle_count
                             cycles.append(cycle)
                             cycle_count += 1
                     elif nextNode not in visited:
                         visited[nextNode] = True
-                        parent_node[nextNode] = node
-                        queue.append((nextNode, level + 1))
+                        queue.append((nextNode, cycle[:] + [nextNode]))
     return cycles
