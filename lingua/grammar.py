@@ -1,4 +1,8 @@
 
+import itertools
+import graph
+
+
 class Symbol(object):
     def __init__(self, name, resultType=None):
         self.index = -1
@@ -97,49 +101,18 @@ class Grammar(object):
                 tCount += 1
 
     def nonTerminals(self):
-        return filter(lambda x: x.isNonTerminal(), self.symbolsByIndex)
+        return itertools.ifilter(lambda x: x.isNonTerminal(), self.symbolsByIndex)
 
     def detectAllLRCycles(self, startingFrom=None):
         """
         Returns a set of "Starting" non terminals which have atleast
         one production containing left recursion.
         """
-        def strongconnect(currNT, index, indexes, lowlink, stack):
-            indexes[currNT] = index
-            lowlink[currNT] = index
-            index = index + 1
-            stack.insert(0, currNT)
+        def edge_functor(node):
+            for prod in node.productions:
+                if len(prod.symbolUsages) > 0:
+                    if prod.symbolUsages[0].symbol.isNonTerminal():
+                        yield prod.symbolUsages[0].symbol
 
-            # consider all rules of currNT which start with a non term
-            for prod in currNT.productions:
-                if prod.symbolUsages[0].symbol.isNonTerminal():
-                    nextNT = prod.symbolUsages[0].symbol
-                    if nextNT not in indexes:
-                        # not yet been visited so recurse on it
-                        index, _ = strongconnect(nextNT, index, indexes, lowlink, stack)
-                        lowlink[currNT] = min(lowlink[currNT], lowlink[nextNT])
-                    elif nextNT in stack:
-                        # success is in the stack so we are good
-                        lowlink[currNT] = min(lowlink[currNT], lowlink[nextNT])
-
-            scc = []
-            if lowlink[currNT] == indexes[currNT]:
-                # start a new strongly connected component
-                while True:
-                    nextNT = stack.pop(0)
-                    scc.append(nextNT)
-                    if nextNT == currNT:
-                        break
-            return index, scc
-
-        out = []
-        index = 0
-        indexes = {}
-        lowlink = {}
-        stack = []
-
-        for currNT in self.nonTerminals():
-            if currNT not in indexes:
-                index, scc = strongconnect(currNT, index, indexes, lowlink, stack)
-                out.append(scc)
-        return out
+        # return graph.tarjan(self.nonTerminals(), edge_functor)
+        return graph.all_minimal_cycles(self.nonTerminals(), edge_functor)

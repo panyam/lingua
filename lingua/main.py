@@ -3,8 +3,10 @@
 # import sys
 import StringIO
 import grammar
+import graph
 
 reload(grammar)
+reload(graph)
 
 TOKEN_ERROR = -1
 TOKEN_EOF = 0

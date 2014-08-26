@@ -1,0 +1,14 @@
+
+A {
+	->	B PLUS F ;
+} 
+
+B {
+	-> C MUL D ;
+}
+
+C {
+ 	-> D MUL E ;
+ 	-> F ;
+}
+
