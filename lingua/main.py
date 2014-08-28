@@ -129,14 +129,6 @@ def tokenize(input):
                 yield TOKEN_ERROR, "Invalid character: '%s'" % nextch
 
 
-def tokenize_file(fname):
-    for tok, value in tokenize(open(fname)):
-        if value:
-            print "Token: ", token_labels[tok], value
-        else:
-            print "Token: ", token_labels[tok]
-
-
 class Parser(object):
     """
     The grammar for the input file is:
@@ -173,20 +165,16 @@ class Parser(object):
 
         # Create the "core" parser which will be used to parse other files
         self.tokenizer = tokenize(self.instream)
-        self.peekedToken = None
+        self.peekedTokens = []
 
-    def peekToken(self):
-        if self.peekedToken is None:
-            self.peekedToken = self.tokenizer.next()
-
-        if self.peekedToken is None:
-            return None
-        return self.peekedToken[0]
+    def peekToken(self, nth=0):
+        while len(self.peekedTokens) <= nth:
+            self.peekedTokens.append(self.tokenizer.next())
+        return self.peekedTokens[nth][0]
 
     def advanceToken(self):
         self.peekToken()
-        toktype, tokvalue = self.peekedToken
-        self.peekedToken = None
+        toktype, tokvalue = self.peekedTokens.pop(0)
         return tokvalue
 
     def expectAndAdvanceToken(self, token_type):
@@ -220,11 +208,15 @@ class Parser(object):
         nonterm = G.addSymbol(ntname, nttype)
 
         # Get the productions
-        self.expectAndAdvanceToken(TOKEN_OBRACE)
-        while self.peekToken() != TOKEN_CBRACE:
-            production = self.getProduction(G, nonterm)
+        if self.peekToken() == TOKEN_OBRACE:
+            self.advanceToken(TOKEN_OBRACE)
+            while self.peekToken() != TOKEN_CBRACE:
+                production = self.getProduction(G, nonterm)
+                nonterm.addProduction(production)
+            self.expectAndAdvanceToken(TOKEN_CBRACE)
+        elif self.peekToken() == TOKEN_ARROW:
+            production = self.getProduction(G, nonterm, False)
             nonterm.addProduction(production)
-        self.expectAndAdvanceToken(TOKEN_CBRACE)
         return nonterm
 
     def getNonTermType(self):
@@ -234,23 +226,25 @@ class Parser(object):
 
         return self.expectAndAdvanceToken(TOKEN_IDENT)
 
-    def getProduction(self, G, nonterm):
+    def getProduction(self, G, nonterm, insideBlock=True):
         self.expectAndAdvanceToken(TOKEN_ARROW)
         symbols = []
-        symbolUsage = self.getSymbolUsage(G)
+        symbolUsage = self.getSymbolUsage(G, insideBlock)
         handler = None
         while symbolUsage:
             symbols.append(symbolUsage)
-            symbolUsage = self.getSymbolUsage(G)
+            symbolUsage = self.getSymbolUsage(G, insideBlock)
 
-        if self.peekToken() == TOKEN_SEMICOLON:
-            self.advanceToken()
+        if self.peekToken() != TOKEN_IDENT or insideBlock:
+            # next rule has started so push it back so the next prod can start
+            if self.peekToken() == TOKEN_SEMICOLON:
+                self.advanceToken()
 
-        if self.peekToken() == TOKEN_BLOCK:
-            handler = self.advanceToken()
+            if self.peekToken() == TOKEN_BLOCK:
+                handler = self.advanceToken()
         return grammar.Production(nonterm, symbols, handler)
 
-    def getSymbolUsage(self, G):
+    def getSymbolUsage(self, G, insideBlock=True):
         symbolName = None
         symbolVar = None
         isOptional = False
@@ -261,10 +255,26 @@ class Parser(object):
         if not isOptional and self.peekToken() != TOKEN_IDENT:
             return None
 
+        if not insideBlock and self.peekToken(1) == TOKEN_ARROW:
+            return None
+
         symbolName = self.expectAndAdvanceToken(TOKEN_IDENT)
         if self.peekToken() == TOKEN_COLON:
             self.advanceToken()
             symbolVar = self.expectAndAdvanceToken(TOKEN_IDENT)
-
         symbol = G.addSymbol(symbolName)
         return grammar.SymbolUsage(symbol, symbolVar, isOptional)
+
+
+def tokenize_file(fname):
+    for tok, value in tokenize(open(fname)):
+        if value:
+            print "Token: ", token_labels[tok], value
+        else:
+            print "Token: ", token_labels[tok]
+
+
+def parse_file(filepath):
+    return Parser(open(filepath).read()).parse()
+
+# g = parse_file("./simple.pg") ; nts = list(g.nonTerminals()) ; g.predictAndFollowSets("S")
