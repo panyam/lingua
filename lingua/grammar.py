@@ -72,6 +72,10 @@ class Production(object):
     def __repr__(self):
         return "%s -> %s" % (self.nonterm, " ".join(map(str, self.symbolUsages)))
 
+    def setPredictSet(self, newset=None):
+        newset = newset or set()
+        self.predictSet = newset
+
 
 class Reduction(object):
     def __init__(self, production, results):
@@ -216,7 +220,7 @@ class Grammar(object):
             startnt = self.symbolsByName[startnt]
 
         nullables = nullables or self.nullables()
-        firstSets = firstSets or self.firstSets()
+        firstSets = firstSets or self.firstSets(nullables)
 
         follow = collections.defaultdict(set)
         follow[startnt] = set((self.eofToken,))
@@ -269,6 +273,16 @@ class Grammar(object):
             if n == 0:
                 break
         return follow
+
+    def predictSets(self, nullables=None, firstSets=None, followSets=None):
+        nullables = nullables or self.nullables()
+        firstSets = firstSets or self.firstSets(nullables)
+        followSets = followSets or self.followSets(nullables, firstSets)
+        for prod in self.allProductions():
+            pset = firstSets[prod.symbolUsages]
+            prod.setPredictSet(pset)
+            if prod.symbolUsages in nullables:
+                pset += followSets[prod.nonterm]
 
     def predictAndFollowSets(self, startnt, firstSets=None, nullables=None):
         """
