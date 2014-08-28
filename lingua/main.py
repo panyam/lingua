@@ -140,12 +140,10 @@ class Parser(object):
 
     NonTermType ::= "(" IDENT ")" ;
     NonTermName ::= IDENT ;
-    NonTermBody ::= "{" Productions "}" ;
+    NonTermBody ::= "->" Production ( | Production ) *;
+    NonTermBody ::= "{" ( "->" Production ) * "}" ;
 
-    Productions ::= Production Productions ;
-    Productions ::= Production ;
-
-    Production ::= "->" SymbolUsages ";" ProductionHandler ?
+    Production :: SymbolUsages ? ";" ? ProductionHandler ;
     ProductionHandler ::= BLOCK
 
     SymbolUsages ::= SymbolUsage SymbolUsages ;
