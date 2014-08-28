@@ -1,13 +1,6 @@
-
 import itertools
 import graph
 import collections
-
-
-def breakpoint(cond=None):
-    if not cond or cond():
-        import pudb
-        pudb.set_trace()
 
 
 class Symbol(object):
@@ -216,6 +209,7 @@ class Grammar(object):
         return out
 
     def followSets(self, startnt, nullables=None, firstSets=None):
+        startnt = startnt or self.symbolsByIndex[0]
         if type(startnt) is str:
             startnt = self.symbolsByName[startnt]
 
@@ -274,15 +268,36 @@ class Grammar(object):
                 break
         return follow
 
-    def predictSets(self, nullables=None, firstSets=None, followSets=None):
+    def evalPredictSets(self, nullables=None, firstSets=None, followSets=None):
         nullables = nullables or self.nullables()
         firstSets = firstSets or self.firstSets(nullables)
-        followSets = followSets or self.followSets(nullables, firstSets)
-        for prod in self.allProductions():
-            pset = firstSets[prod.symbolUsages]
+        followSets = followSets or self.followSets(None, nullables, firstSets)
+        for nonterm, prod in self.allProductions():
+            nUsages = len(prod.symbolUsages)
+            nullableFrom = [False] * nUsages
+            firstFrom = [set() for i in xrange(0, nUsages)]
+            for i in xrange(nUsages - 1, -1, -1):
+                symUsage = prod.symbolUsages[i]
+                symbol = symUsage.symbol
+                isNullable = symbol in nullables or symUsage.isOptional
+                firstFrom[i].update(firstSets[symbol])
+                nullableFrom[i] = isNullable
+                if i < nUsages - 1 and isNullable:
+                    nullableFrom[i] = isNullable and nullableFrom[i + 1]
+                    firstFrom[i].update(firstFrom[i + 1])
+
+            pset = set()
+            if nUsages > 0:
+                pset.update(firstFrom[0])
+                if nullableFrom[0]:
+                    pset.update(followSets[prod.nonterm])
+            else:
+                pset.update(followSets[prod.nonterm])
             prod.setPredictSet(pset)
-            if prod.symbolUsages in nullables:
-                pset += followSets[prod.nonterm]
+            if pset:
+                print "Prod: %s, predSet: [%s]" % (prod, " ".join(map(str, list(pset))))
+            else:
+                print "Prod: %s, predSet: []" % prod
 
     def predictAndFollowSets(self, startnt, firstSets=None, nullables=None):
         """

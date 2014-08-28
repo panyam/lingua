@@ -21,6 +21,7 @@ TOKEN_ARROW = 8
 TOKEN_IDENT = 9
 TOKEN_STRING = 10
 TOKEN_QMARK = 11
+TOKEN_PIPE = 12
 
 token_labels = {
     TOKEN_ERROR: "ERROR",
@@ -36,6 +37,7 @@ token_labels = {
     TOKEN_IDENT: "IDENT",
     TOKEN_STRING: "STRING",
     TOKEN_QMARK: "QMARK",
+    TOKEN_PIPE: "PIPE",
 }
 
 
@@ -107,6 +109,8 @@ def tokenize(input):
                 yield TOKEN_OBRACE, None
         elif nextch == '}':
             yield TOKEN_CBRACE, None
+        elif nextch == '|':
+            yield TOKEN_PIPE, None
         elif nextch == '?':
             yield TOKEN_QMARK, None
         elif nextch == '-':
@@ -165,6 +169,9 @@ class Parser(object):
         self.tokenizer = tokenize(self.instream)
         self.peekedTokens = []
 
+    def insertToken(self, ttype, tval=None):
+        self.peekedTokens.insert(0, (ttype, tval))
+
     def peekToken(self, nth=0):
         while len(self.peekedTokens) <= nth:
             self.peekedTokens.append(self.tokenizer.next())
@@ -180,8 +187,9 @@ class Parser(object):
         if pt is None:
             raise Exception("Unexpected end of input")
         if pt != token_type:
-            raise Exception("Expected token: %s, Found: %s" %
-                            (token_labels[token_type], token_labels[pt]))
+            expected = token_labels[token_type]
+            found = token_labels[pt]
+            raise Exception("Expected token: %s, Found: %s" % (expected, found))
         return self.advanceToken()
 
     def hasToken(self):
@@ -195,7 +203,14 @@ class Parser(object):
 
     def getNonTerms(self, G):
         out = []
+        nonterm = None
         while self.hasToken():
+            if self.peekToken() == TOKEN_PIPE:
+                # then insert a couple of tokens
+                # to mimic A ->
+                self.advanceToken()
+                self.insertToken(TOKEN_ARROW)
+                self.insertToken(TOKEN_IDENT, nonterm.name)
             nonterm = self.getNonTerm(G)
             out.append(nonterm)
         return out

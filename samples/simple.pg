@@ -2,17 +2,13 @@
 S  -> exp STOP 
 exp -> term exptail 
 
-exptail ->  
-exptail -> OPA term exptail 
+exptail ->  OPA term exptail  | ;
 
 term -> sfactor termtail 
 
-termtail -> 
-termtail -> OPM factor termtail 
+termtail -> OPM factor termtail | ;
 
-sfactor -> OPA factor 
-sfactor -> factor 
+sfactor -> OPA factor | factor
 
-factor -> NUM 
-factor -> LP exp RP 
+factor -> NUM | LP exp RP 
 
