@@ -267,7 +267,7 @@ class Parser(object):
 
             if self.peekToken() == TOKEN_BLOCK:
                 handler = self.advanceToken()
-        production = grammar.Production(symbols, handler)
+        production = grammar.Production(nonterm, symbols, handler)
         G.addProduction(nonterm, production)
 
     def getSymbolUsage(self, G, insideBlock=True):

@@ -57,12 +57,12 @@ class SymbolUsage(object):
         return SymbolUsage(outsym, self.varname, self.isOptional)
 
     @property
-    def isNonTerminal(self):
-        return self.symbol.isNonTerminal
-
-    @property
     def isTerminal(self):
         return self.symbol.isTerminal
+
+    @property
+    def isNonTerminal(self):
+        return self.symbol.isNonTerminal
 
     def __repr__(self):
         return "%s%s%s" % (("? " if self.isOptional else ""),
@@ -71,7 +71,8 @@ class SymbolUsage(object):
 
 
 class Production(object):
-    def __init__(self, symbols, handler=None):
+    def __init__(self, nonterm, symbols, handler=None):
+        self.nonterm = nonterm
         for index, symbol in enumerate(symbols):
             if type(symbol) is str:
                 symbols[index] = SymbolUsage(symbol)
@@ -79,10 +80,13 @@ class Production(object):
         self.handler = handler
 
     def __repr__(self):
-        return "%s" % " ".join(map(str, self.symbolUsages))
+        return "%s -> %s" % (self.nonterm, " ".join(map(str, self.symbolUsages)))
 
     def copy(self, grammar=None):
-        return Production([s.copy(grammar) for s in self.symbolUsages], self.handler)
+        outsym = self.nonterm
+        if grammar:
+            outsym = grammar.symbolByName(self.nonterm.name)
+        return Production(outsym, [s.copy(grammar) for s in self.symbolUsages], self.handler)
 
     def setPredictSet(self, newset=None):
         newset = newset or set()
@@ -136,35 +140,41 @@ class Grammar(object):
         return symbol in self.nonTerminalsByName
 
     def addTerminal(self, symbol, resultType=None):
-        assert symbol not in self.nonTerminalsByName, "Symbol is already classified as a non terminal"
         if type(symbol) is str:
+            assert symbol not in self.nonTerminalsByName, "Symbol is already classified as a non terminal"
             if symbol in self.terminalsByName:
                 symbol = self.terminalsByName[symbol]
             else:
                 symbol = Symbol(symbol, resultType)
-        symbol.isTerminal = True
+        else:
+            assert symbol.name not in self.nonTerminalsByName, "Symbol is already classified as a non terminal"
         if symbol.name not in self.terminalsByName:
             self.terminalsByName[symbol.name] = symbol
             self.terminalsByIndex.append(symbol)
+        symbol = self.terminalsByName[symbol]
+        symbol.isTerminal = True
         return symbol
 
     def addNonTerminal(self, symbol, resultType=None):
         if type(symbol) is str:
             if symbol in self.nonTerminalsByName:
                 symbol = self.nonTerminalsByName[symbol]
+            elif symbol in self.terminalsByName:
+                symbol = self.terminalsByName[symbol]
             else:
                 symbol = Symbol(symbol, resultType)
         if symbol.name in self.terminalsByName:
             del self.terminalsByName[symbol.name]
             index = self.terminalsByIndex.index(symbol)
             del self.terminalsByIndex[index]
-        symbol.isTerminal = False
         if symbol.name not in self.nonTerminalsByName:
-            self.nonTerminalsByName[symbol.name] = symbol
             self.nonTerminalsByIndex.append(symbol)
+        self.nonTerminalsByName[symbol.name] = symbol
+        symbol.isTerminal = False
         return symbol
 
     def addProduction(self, nonterm, production):
+        production.nonterm = nonterm
         if nonterm not in self.productions:
             self.productions[nonterm] = []
         self.productions[nonterm].append(production)
@@ -175,8 +185,11 @@ class Grammar(object):
                 yield nonterm, prod
 
     def productionsFor(self, nonterm):
-        if nonterm in self.productions:
-            return self.productions[nonterm]
+        name = nonterm
+        if hasattr(nonterm, "name"):
+            name = nonterm.name
+        if name in self.productions:
+            return self.productions[name]
         else:
             return []
 
@@ -185,7 +198,7 @@ class Grammar(object):
         Get the nullable non terminals in the grammar.
         """
         out = set()
-        for name, nonterm in self.nonTerminalsByName.iteritems():
+        for nonterm in self.nonTerminalsByName.iteritems():
             # first find all non terms that already have a
             # production with only null
             for prod in self.productionsFor(nonterm):
@@ -351,9 +364,9 @@ class Grammar(object):
                 pset.update(followSets[nonterm])
             prod.setPredictSet(pset)
             if pset:
-                print "Prod: %s -> %s, predSet: [%s]" % (nonterm, prod, " ".join(map(str, list(pset))))
+                print "Prod: %s, predSet: [%s]" % (nonterm, prod, " ".join(map(str, list(pset))))
             else:
-                print "Prod: %s -> %s, predSet: []" % (nonterm, prod)
+                print "Prod: %s, predSet: []" % (nonterm, prod)
 
     def detectCycles(self):
         """
@@ -362,15 +375,10 @@ class Grammar(object):
         def edge_functor(node):
             for prod in self.productionsFor(node):
                 if len(prod.symbolUsages) == 1:
-                    if prod.symbolUsages[0].symbol.isNonTerminal:
+                    if prod.symbolUsages[0].isNonTerminal:
                         yield prod.symbolUsages[0].symbol
 
-        return graph.all_minimal_cycles(self.nonTerminalsByName, edge_functor)
-
-    def uselessProductions(self):
-        """
-        Returns all productions that are useless and can be removed.
-        """
+        return graph.all_minimal_cycles(self.nonTerminalsByIndex, edge_functor)
 
     def detectLeftRecursion(self):
         """
