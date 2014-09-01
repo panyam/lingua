@@ -11,6 +11,12 @@ class Symbol(object):
         self._isTerminal = True
         self.resultType = resultType
 
+    def copy(self):
+        out = Symbol(self.name, self.resultType)
+        out.isTerminal = self.isTerminal
+        out.index = self.index
+        return out
+
     def __cmp__(self, other):
         if type(other) is str:
             other = Symbol(other)
@@ -44,9 +50,15 @@ class SymbolUsage(object):
         self.varname = varname
         self.isOptional = isOptional
 
+    def copy(self, grammar=None):
+        outsym = self.symbol
+        if grammar:
+            outsym = grammar.symbolByName(self.symbol.name)
+        return SymbolUsage(outsym, self.varname, self.isOptional)
+
     @property
     def isNonTerminal(self):
-        return not self.symbol.isTerminal
+        return self.symbol.isNonTerminal
 
     @property
     def isTerminal(self):
@@ -68,6 +80,9 @@ class Production(object):
 
     def __repr__(self):
         return "%s" % " ".join(map(str, self.symbolUsages))
+
+    def copy(self, grammar=None):
+        return Production([s.copy(grammar) for s in self.symbolUsages], self.handler)
 
     def setPredictSet(self, newset=None):
         newset = newset or set()
@@ -91,6 +106,29 @@ class Grammar(object):
         self.productions = {}
         self.eofToken = Grammar.EOF
 
+    def copy(self):
+        out = Grammar()
+        out.eofToken = self.eofToken.copy()
+
+        # copy symbols first
+        out.terminalsByIndex = [t.copy() for t in self.terminalsByIndex]
+        out.nonTerminalsByIndex = [nt.copy() for nt in self.nonTerminalsByIndex]
+        for term in out.terminalsByIndex:
+            out.terminalsByName[term.name] = term
+        for nonterm in out.nonTerminalsByIndex:
+            out.nonTerminalsByName[nonterm.name] = nonterm
+
+        # copy productions
+        for name, productions in self.productions.iteritems():
+            out.productions[name] = [p.copy(self) for p in productions]
+        return out
+
+    def symbolByName(self, name):
+        if name in self.terminalsByName:
+            return self.terminalsByName[name]
+        else:
+            return self.nonTerminalsByName[name]
+
     def isTerminal(self, symbol):
         return symbol in self.terminalsByName
 
@@ -98,14 +136,14 @@ class Grammar(object):
         return symbol in self.nonTerminalsByName
 
     def addTerminal(self, symbol, resultType=None):
-        assert symbol in self.nonTerminalsByName, "Symbol is already classified as a non terminal"
+        assert symbol not in self.nonTerminalsByName, "Symbol is already classified as a non terminal"
         if type(symbol) is str:
             if symbol in self.terminalsByName:
                 symbol = self.terminalsByName[symbol]
             else:
                 symbol = Symbol(symbol, resultType)
         symbol.isTerminal = True
-        if symbol not in self.terminalsByName:
+        if symbol.name not in self.terminalsByName:
             self.terminalsByName[symbol.name] = symbol
             self.terminalsByIndex.append(symbol)
         return symbol
@@ -116,12 +154,12 @@ class Grammar(object):
                 symbol = self.nonTerminalsByName[symbol]
             else:
                 symbol = Symbol(symbol, resultType)
-        if symbol in self.terminalsByName:
+        if symbol.name in self.terminalsByName:
             del self.terminalsByName[symbol.name]
             index = self.terminalsByIndex.index(symbol)
             del self.terminalsByIndex[index]
         symbol.isTerminal = False
-        if symbol not in self.nonTerminalsByName:
+        if symbol.name not in self.nonTerminalsByName:
             self.nonTerminalsByName[symbol.name] = symbol
             self.nonTerminalsByIndex.append(symbol)
         return symbol
@@ -322,7 +360,7 @@ class Grammar(object):
         Returns all cycles.
         """
         def edge_functor(node):
-            for prod in node.productions:
+            for prod in self.productionsFor(node):
                 if len(prod.symbolUsages) == 1:
                     if prod.symbolUsages[0].symbol.isNonTerminal:
                         yield prod.symbolUsages[0].symbol
@@ -340,7 +378,7 @@ class Grammar(object):
         one production containing left recursion.
         """
         def edge_functor(node):
-            for prod in node.productions:
+            for prod in self.productionsFor(node):
                 for symUsage in prod.symbolUsages:
                     if symUsage.isNonTerminal:
                         yield symUsage.symbol

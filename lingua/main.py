@@ -41,35 +41,101 @@ token_labels = {
 }
 
 
-def tokenize(input):
-    """
-    Scans a elk grammar like grammar file.
-    """
-    prevch = None
+class Tokenizer(object):
+    def __init__(self, input):
+        self.instream = input
+        if type(input) is str:
+            self.instream = StringIO.StringIO(input)
 
-    instream = input
-    if type(input) is str:
-        instream = StringIO.StringIO(input)
+        # Create the "core" parser which will be used to parse other files
+        self.prevch = None
+        self.line = 0
+        self.column = 0
+        self.finished = False
 
-    def reachedEof(ch): return ch == '' or ch is None
+    def reachedEof(self, ch):
+        return ch == '' or ch is None
 
-    def read_identifier(strsofar=''):
-        prevch = None
-        nextch = instream.read(1)
+    def nextChar(self):
+        if self.prevch:
+            nextch = self.prevch
+            self.prevch = None
+        else:
+            nextch = self.instream.read(1)
+            if nextch in "\n\r":
+                self.line += 1
+                self.column = 0
+        return nextch
+
+    def nextToken(self):
+        """
+        Scans a elk grammar like grammar file.
+        """
+        if self.finished:
+            return TOKEN_EOF, None
+
+        # skip spaces
+        nextch = self.nextChar()
+        while nextch.isspace():
+            nextch = self.nextChar()
+
+        if nextch == '(':
+            return TOKEN_OPAREN, None
+        elif nextch == ')':
+            return TOKEN_CPAREN, None
+        elif nextch == ':':
+            return TOKEN_COLON, None
+        elif nextch == ';':
+            return TOKEN_SEMICOLON, None
+        elif nextch == '{':
+            nextch = self.nextChar()
+            if nextch == '%':
+                return self.read_block()
+            else:
+                self.prevch = nextch
+                return TOKEN_OBRACE, None
+        elif nextch == '}':
+            return TOKEN_CBRACE, None
+        elif nextch == '|':
+            return TOKEN_PIPE, None
+        elif nextch == '?':
+            return TOKEN_QMARK, None
+        elif nextch == '-':
+            nextch = self.nextChar()
+            if nextch != '>':
+                return TOKEN_ERROR, "Expected '>', Found: '%s'" % nextch
+            else:
+                return TOKEN_ARROW, None
+        elif nextch.isalpha() or nextch == '_':
+            tok, value, self.prevch = self.read_identifier(nextch)
+            return tok, value
+        # elif nextch == '"' or nextch == "'":
+            # return read_string_literal(nextch)
+        else:
+            if self.reachedEof(nextch):
+                return TOKEN_EOF, None
+                self.finished = True
+            else:
+                print "Reached EOF: ", self.reachedEof(nextch)
+                return TOKEN_ERROR, "Invalid character: '%s'" % nextch
+
+    def read_identifier(self, strsofar=''):
+        self.prevch = None
+        nextch = self.nextChar()
         while nextch.isalnum() or nextch == '_':
             strsofar += nextch
-            nextch = instream.read(1)
+            nextch = self.nextChar()
 
-        if not reachedEof(nextch):
-            prevch = nextch
-        return TOKEN_IDENT, strsofar, prevch
+        if not self.reachedEof(nextch):
+            self.prevch = nextch
+        return TOKEN_IDENT, strsofar, self.prevch
 
-    def read_block():
+    def read_block(self):
         out = ''
-        nextch = instream.read(1)
-        while not reachedEof(nextch):
+        nextch = self.nextChar()
+        while not self.reachedEof(nextch):
             if nextch == '%':
-                nextch = instream.read(1)
+                nextch = self.nextChar()
                 if nextch != '}':
                     out += '%'
                     out += nextch
@@ -77,60 +143,8 @@ def tokenize(input):
                     return TOKEN_BLOCK, out
             else:
                 out += nextch
-            nextch = instream.read(1)
+            nextch = self.nextChar()
         return TOKEN_ERROR, "Unexpected end of file in block"
-
-    finished = False
-    while not finished:
-        # skip spaces
-        if prevch:
-            nextch = prevch
-            prevch = None
-        else:
-            nextch = instream.read(1)
-
-        while nextch.isspace():
-            nextch = instream.read(1)
-
-        if nextch == '(':
-            yield TOKEN_OPAREN, None
-        elif nextch == ')':
-            yield TOKEN_CPAREN, None
-        elif nextch == ':':
-            yield TOKEN_COLON, None
-        elif nextch == ';':
-            yield TOKEN_SEMICOLON, None
-        elif nextch == '{':
-            nextch = instream.read(1)
-            if nextch == '%':
-                yield read_block()
-            else:
-                prevch = nextch
-                yield TOKEN_OBRACE, None
-        elif nextch == '}':
-            yield TOKEN_CBRACE, None
-        elif nextch == '|':
-            yield TOKEN_PIPE, None
-        elif nextch == '?':
-            yield TOKEN_QMARK, None
-        elif nextch == '-':
-            nextch = instream.read(1)
-            if nextch != '>':
-                yield TOKEN_ERROR, "Expected '>', Found: '%s'" % nextch
-            else:
-                yield TOKEN_ARROW, None
-        elif nextch.isalpha() or nextch == '_':
-            tok, value, prevch = read_identifier(nextch)
-            yield tok, value
-        # elif nextch == '"' or nextch == "'":
-            # yield read_string_literal(nextch)
-        else:
-            if reachedEof(nextch):
-                yield TOKEN_EOF, None
-                finished = True
-            else:
-                print "Reached EOF: ", reachedEof(nextch)
-                yield TOKEN_ERROR, "Invalid character: '%s'" % nextch
 
 
 class Parser(object):
@@ -166,7 +180,7 @@ class Parser(object):
             self.instream = StringIO.StringIO(input)
 
         # Create the "core" parser which will be used to parse other files
-        self.tokenizer = tokenize(self.instream)
+        self.tokenizer = Tokenizer(self.instream)
         self.peekedTokens = []
 
     def insertToken(self, ttype, tval=None):
@@ -174,7 +188,7 @@ class Parser(object):
 
     def peekToken(self, nth=0):
         while len(self.peekedTokens) <= nth:
-            self.peekedTokens.append(self.tokenizer.next())
+            self.peekedTokens.append(self.tokenizer.nextToken())
         return self.peekedTokens[nth][0]
 
     def advanceToken(self):
@@ -267,22 +281,23 @@ class Parser(object):
         if not isOptional and self.peekToken() != TOKEN_IDENT:
             return None
 
-        if not insideBlock and self.peekToken(1) == TOKEN_ARROW:
-            return None
+        if not insideBlock:
+            if self.peekToken(1) in (TOKEN_ARROW, TOKEN_OBRACE):
+                return None
 
         symbolName = self.expectAndAdvanceToken(TOKEN_IDENT)
         if self.peekToken() == TOKEN_COLON:
             self.advanceToken()
             symbolVar = self.expectAndAdvanceToken(TOKEN_IDENT)
         if G.isNonTerminal(symbolName):
-            symbol = G.addTerminal(symbolName)
-        else:
             symbol = G.addNonTerminal(symbolName)
+        else:
+            symbol = G.addTerminal(symbolName)
         return grammar.SymbolUsage(symbol, symbolVar, isOptional)
 
 
 def tokenize_file(fname):
-    for tok, value in tokenize(open(fname)):
+    for tok, value in Tokenizer(open(fname)).tokenize():
         if value:
             print "Token: ", token_labels[tok], value
         else:
