@@ -1,40 +1,18 @@
 
-A {
-	->	B PLUS F ;
-} 
 
-B {
-	-> C MUL D ;
-}
+S -> X | b
 
-C {
- 	-> A MUL X ;
- 	-> S ;
-}
+X -> Y | a
 
-D {
-	-> B PLUS X ;
-	-> C PLUS Y ;
-	-> E PLUS Z ;
-}
+X -> C 
 
-E {
-	-> D PLUS X ;
-	-> F PLUS Y ;
-}
+Y -> S | a
 
-F {
-	-> C PLUS X ;
-	-> G MUL Y ;
-}
+A -> B
 
-G {
-	-> F PLUS X ;
-}
+B -> C
 
-H {
-	-> H PLUS X ;
-	-> E PLUS Y ;
-	-> G PLUS Z ;
-}
+C -> D
+ 
+D -> E | A
 

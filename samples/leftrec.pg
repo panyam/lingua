@@ -1,0 +1,25 @@
+
+A ->	B PLUS F ;
+
+B -> C MUL D ;
+
+C -> A MUL X | S ;
+
+D {
+	-> B PLUS X ;
+	-> C PLUS Y ;
+	-> E PLUS Z ;
+}
+
+E -> D PLUS X | F PLUS Y
+
+F -> C PLUS X | G MUL Y
+
+G -> F PLUS X
+
+H {
+	-> H PLUS X ;
+	-> E PLUS Y ;
+	-> G PLUS Z ;
+}
+

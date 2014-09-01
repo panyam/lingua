@@ -1,0 +1,8 @@
+
+S -> X X | Y
+
+X -> a X b | ;
+
+Y -> a Y b | Z
+
+Z -> b Z a  | ;

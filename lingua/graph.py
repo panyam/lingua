@@ -46,11 +46,11 @@ def tarjan(nodes, edge_functor):
 def all_minimal_cycles(nodes, edge_functor):
     # Tells which cycle a node is assigned to if any
     cycles = []
-    cycle_num = {}
+    in_a_cycle = set()
     cycle_count = 0
     for node in nodes:
         # start from node and do a BFS to see what cycle a node appears in
-        if node not in cycle_num:
+        if node not in in_a_cycle:
             start_node = node
             visited = {}
             queue = [(node, [node])]
@@ -61,7 +61,7 @@ def all_minimal_cycles(nodes, edge_functor):
                     if nextNode == start_node:
                         # we have a cycle
                         if cycle:
-                            cycle_num[node] = cycle_count
+                            in_a_cycle.update(cycle)
                             cycles.append(cycle)
                             cycle_count += 1
                     elif nextNode not in visited:

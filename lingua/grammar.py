@@ -1,14 +1,15 @@
-import itertools
+# import itertools
 import graph
 import collections
+import pudb
 
 
 class Symbol(object):
     def __init__(self, name, resultType=None):
         self.index = -1
         self.name = name
+        self._isTerminal = True
         self.resultType = resultType
-        self.productions = []
 
     def __cmp__(self, other):
         if type(other) is str:
@@ -24,15 +25,17 @@ class Symbol(object):
         else:
             return "<%s>" % self.name
 
+    @property
     def isTerminal(self):
-        return len(self.productions) == 0
+        return self._isTerminal
 
+    @isTerminal.setter
+    def isTerminal(self, val):
+        self._isTerminal = val
+
+    @property
     def isNonTerminal(self):
-        return len(self.productions) > 0
-
-    def addProduction(self, production):
-        production.nonterm = self
-        self.productions.append(production)
+        return not self._isTerminal
 
 
 class SymbolUsage(object):
@@ -41,11 +44,13 @@ class SymbolUsage(object):
         self.varname = varname
         self.isOptional = isOptional
 
+    @property
     def isNonTerminal(self):
-        return self.symbol.isNonTerminal()
+        return not self.symbol.isTerminal
 
+    @property
     def isTerminal(self):
-        return self.symbol.isTerminal()
+        return self.symbol.isTerminal
 
     def __repr__(self):
         return "%s%s%s" % (("? " if self.isOptional else ""),
@@ -54,8 +59,7 @@ class SymbolUsage(object):
 
 
 class Production(object):
-    def __init__(self, nonterm, symbols, handler=None):
-        self.nonterm = nonterm
+    def __init__(self, symbols, handler=None):
         for index, symbol in enumerate(symbols):
             if type(symbol) is str:
                 symbols[index] = SymbolUsage(symbol)
@@ -63,7 +67,7 @@ class Production(object):
         self.handler = handler
 
     def __repr__(self):
-        return "%s -> %s" % (self.nonterm, " ".join(map(str, self.symbolUsages)))
+        return "%s" % " ".join(map(str, self.symbolUsages))
 
     def setPredictSet(self, newset=None):
         newset = newset or set()
@@ -77,84 +81,98 @@ class Reduction(object):
 
 
 class Grammar(object):
-    EOF = Symbol("")
+    EOF = Symbol("EOF")
 
     def __init__(self):
-        self.symbolsByName = {}
-        self.symbolsByIndex = []
+        self.terminalsByName = {}
+        self.nonTerminalsByName = {}
+        self.terminalsByIndex = []
+        self.nonTerminalsByIndex = []
+        self.productions = {}
         self.eofToken = Grammar.EOF
 
-    def isSymbolATerminalinal(self, symbolname):
-        return symbolname in self.symbolsByName
+    def isTerminal(self, symbol):
+        return symbol in self.terminalsByName
 
-    def addSymbol(self, symbol, resultType=None):
+    def isNonTerminal(self, symbol):
+        return symbol in self.nonTerminalsByName
+
+    def addTerminal(self, symbol, resultType=None):
+        assert symbol in self.nonTerminalsByName, "Symbol is already classified as a non terminal"
         if type(symbol) is str:
-            if symbol in self.symbolsByName:
-                symbol = self.symbolsByName[symbol]
+            if symbol in self.terminalsByName:
+                symbol = self.terminalsByName[symbol]
             else:
                 symbol = Symbol(symbol, resultType)
-        if symbol.name not in self.symbolsByName:
-            self.symbolsByName[symbol.name] = symbol
-            self.symbolsByIndex.append(symbol)
-        return self.symbolsByName[symbol.name]
+        symbol.isTerminal = True
+        if symbol not in self.terminalsByName:
+            self.terminalsByName[symbol.name] = symbol
+            self.terminalsByIndex.append(symbol)
+        return symbol
 
-    def removeSymbol(self, symbolname):
-        del self.symbolsByName[symbolname]
-        for index, value in enumerate(self.symbolsByIndex):
-            if value.name == symbolname:
-                del self.symbolsByIndex[index]
-                break
-
-    def reindexSymbols(self):
-        ntCount = 0
-        tCount = 0
-        for value in self.symbolsByIndex:
-            if value.isNonTerminal():
-                value.index = ntCount
-                ntCount += 1
+    def addNonTerminal(self, symbol, resultType=None):
+        if type(symbol) is str:
+            if symbol in self.nonTerminalsByName:
+                symbol = self.nonTerminalsByName[symbol]
             else:
-                value.index = tCount
-                tCount += 1
+                symbol = Symbol(symbol, resultType)
+        if symbol in self.terminalsByName:
+            del self.terminalsByName[symbol.name]
+            index = self.terminalsByIndex.index(symbol)
+            del self.terminalsByIndex[index]
+        symbol.isTerminal = False
+        if symbol not in self.nonTerminalsByName:
+            self.nonTerminalsByName[symbol.name] = symbol
+            self.nonTerminalsByIndex.append(symbol)
+        return symbol
+
+    def addProduction(self, nonterm, production):
+        if nonterm not in self.productions:
+            self.productions[nonterm] = []
+        self.productions[nonterm].append(production)
 
     def allProductions(self):
-        for nonterm in self.nonTerminals():
-            for prod in nonterm.productions:
+        for nonterm, productions in self.productions.iteritems():
+            for prod in productions:
                 yield nonterm, prod
 
-    def nonTerminals(self):
-        return itertools.ifilter(lambda x: x.isNonTerminal(), self.symbolsByIndex)
+    def productionsFor(self, nonterm):
+        if nonterm in self.productions:
+            return self.productions[nonterm]
+        else:
+            return []
 
     def nullables(self):
         """
         Get the nullable non terminals in the grammar.
         """
         out = set()
-        for nonterm in self.nonTerminals():
+        for name, nonterm in self.nonTerminalsByName.iteritems():
             # first find all non terms that already have a
             # production with only null
-            for prod in nonterm.productions:
+            for prod in self.productionsFor(nonterm):
                 if prod.symbolUsages is None or len(prod.symbolUsages) == 0:
                     out.add(nonterm)
 
         # Find productions now that are of the form:
         # Y -> X
         # where X is a nullable (as per step 1) or is optional
-        for nonterm in self.nonTerminals():
+        for name, nonterm in self.nonTerminalsByName.iteritems():
             if nonterm not in out:
-                for prod in nonterm.productions:
+                for prod in self.productionsFor(nonterm):
                     if len(prod.symbolUsages) == 1:
                         symbol = prod.symbolUsages[0].symbol
                         if prod.symbolUsages[0].isOptional or  \
-                                (symbol.isNonTerminal() and symbol in out):
+                                (symbol.isNonTerminal and symbol in out):
                             out.add(nonterm)
                             break
 
         # Finally for all productions of the form:
         # Y -> A B C ... N
         # add Y to the nullable list if all of A, B and C are nullable
-        for nonterm in self.nonTerminals():
+        for name, nonterm in self.nonTerminalsByName.iteritems():
             if nonterm not in out:
-                for prod in nonterm.productions:
+                for prod in self.productionsFor(nonterm):
                     if all([su.isOptional or su.symbol in
                             out for su in prod.symbolUsages]):
                         out.add(nonterm)
@@ -167,27 +185,27 @@ class Grammar(object):
 
         # Now look at productions of the form:
         # A -> a B   (ie first symbol is a terminal)
-        for symbol in self.symbolsByIndex:
-            if symbol.isNonTerminal():
-                nonterm = symbol
-                fset = out[nonterm] = set()
-                for prod in nonterm.productions:
-                    if len(prod.symbolUsages) > 0:
-                        symbol = prod.symbolUsages[0].symbol
-                        if symbol.isTerminal():
-                            fset.add(symbol)
-            else:
-                out[symbol] = set((symbol,))
+        for name, nonterm in self.nonTerminalsByName.iteritems():
+            fset = out[nonterm] = set()
+            for prod in self.productionsFor(nonterm):
+                if len(prod.symbolUsages) > 0:
+                    symbol = prod.symbolUsages[0].symbol
+                    if symbol.isTerminal:
+                        fset.add(symbol)
+
+        # First set of terminals is the terminal itself
+        for name, symbol in self.terminalsByName.iteritems():
+            out[symbol] = set((symbol,))
 
         def dfs(nonterm, populated, fsets, nullables):
             fset = fsets[nonterm]
             if nonterm in populated:
                 return fset
             populated.add(nonterm)
-            for prod in nonterm.productions:
+            for prod in self.productionsFor(nonterm):
                 for symUsage in prod.symbolUsages:
                     symbol = symUsage.symbol
-                    if symbol.isTerminal():
+                    if symbol.isTerminal:
                         fset.add(symbol)
                         if not symUsage.isOptional:
                             # no more FIRSTs in this production
@@ -204,14 +222,14 @@ class Grammar(object):
         # First(A) would contain First(X Y Z)
         # First(X Y Z) would contain First(X) + First(Y Z) if X is nullable
         # and so on
-        for nonterm in self.nonTerminals():
+        for nonterm in self.nonTerminalsByName:
             dfs(nonterm, set(), out, nullables)
         return out
 
     def followSets(self, startnt, nullables=None, firstSets=None):
-        startnt = startnt or self.symbolsByIndex[0]
+        startnt = startnt or self.nonTerminalsByIndex[0]
         if type(startnt) is str:
-            startnt = self.symbolsByName[startnt]
+            startnt = self.nonTerminalsByName[startnt]
 
         nullables = nullables or self.nullables()
         firstSets = firstSets or self.firstSets(nullables)
@@ -227,21 +245,21 @@ class Grammar(object):
                 nonterm = queue.pop(0)
                 if nonterm not in visited:
                     visited[nonterm] = True
-                    for prod in nonterm.productions:
+                    for prod in self.productionsFor(nonterm):
                         nUsages = len(prod.symbolUsages)
                         nullableFrom = [False] * nUsages
                         firstFrom = [set() for i in xrange(0, nUsages)]
                         for i in xrange(nUsages - 1, -1, -1):
                             symUsage = prod.symbolUsages[i]
                             symbol = symUsage.symbol
-                            if symbol.isNonTerminal() and symbol not in visited:
+                            if symbol.isNonTerminal and symbol not in visited:
                                 queue.append(symbol)
 
                             isNullable = symbol in nullables or symUsage.isOptional
                             firstFrom[i].update(firstSets[symbol])
                             if i == nUsages - 1:
                                 nullableFrom[i] = isNullable
-                                if nullableFrom[i] and symbol.isNonTerminal():
+                                if nullableFrom[i] and symbol.isNonTerminal:
                                     # last symbol AND it is nullable so add
                                     # Follow[nonterm] to Folow[symbol]
                                     # since symUsage is nullable
@@ -252,7 +270,7 @@ class Grammar(object):
                                 nullableFrom[i] = isNullable and nullableFrom[i + 1]
                                 if isNullable:
                                     firstFrom[i].update(firstFrom[i + 1])
-                                if symbol.isNonTerminal():
+                                if symbol.isNonTerminal:
                                     size = len(follow[symbol])
                                     follow[symbol].update(firstFrom[i + 1])
                                     numAdded += len(follow[symbol]) - size
@@ -268,10 +286,10 @@ class Grammar(object):
                 break
         return follow
 
-    def evalPredictSets(self, nullables=None, firstSets=None, followSets=None):
+    def evalPredictSets(self, startnt, nullables=None, firstSets=None, followSets=None):
         nullables = nullables or self.nullables()
         firstSets = firstSets or self.firstSets(nullables)
-        followSets = followSets or self.followSets(None, nullables, firstSets)
+        followSets = followSets or self.followSets(startnt, nullables, firstSets)
         for nonterm, prod in self.allProductions():
             nUsages = len(prod.symbolUsages)
             nullableFrom = [False] * nUsages
@@ -290,78 +308,31 @@ class Grammar(object):
             if nUsages > 0:
                 pset.update(firstFrom[0])
                 if nullableFrom[0]:
-                    pset.update(followSets[prod.nonterm])
+                    pset.update(followSets[nonterm])
             else:
-                pset.update(followSets[prod.nonterm])
+                pset.update(followSets[nonterm])
             prod.setPredictSet(pset)
             if pset:
-                print "Prod: %s, predSet: [%s]" % (prod, " ".join(map(str, list(pset))))
+                print "Prod: %s -> %s, predSet: [%s]" % (nonterm, prod, " ".join(map(str, list(pset))))
             else:
-                print "Prod: %s, predSet: []" % prod
+                print "Prod: %s -> %s, predSet: []" % (nonterm, prod)
 
-    def predictAndFollowSets(self, startnt, firstSets=None, nullables=None):
+    def detectCycles(self):
         """
-        Calcualtes the predict and follow sets.  These are mutually recursive
-        functions.
+        Returns all cycles.
         """
-        def predict(nonterm, psets, fsets, nullables, pvisited, fvisited):
-            if nonterm not in pvisited:
-                pvisited[nonterm] = True
-                # First look at productions of the form:
-                # A -> a B   (ie first symbol is a terminal)
-                # and add "a" to the predict sets of A
-                pset = psets[nonterm] = set()
-                for prod in nonterm.productions:
-                    for symUsage in prod.symbolUsages:
-                        symbol = symUsage.symbol
-                        if symbol.isTerminal():
-                            pset.add(symbol)
-                        else:
-                            predict(symbol, psets, fsets, nullables, pvisited, fvisited)
-                            pset.update(psets[symbol])
-                        if not symUsage.isOptional:
-                            break
+        def edge_functor(node):
+            for prod in node.productions:
+                if len(prod.symbolUsages) == 1:
+                    if prod.symbolUsages[0].symbol.isNonTerminal:
+                        yield prod.symbolUsages[0].symbol
 
-                if nonterm in nullables:
-                    follow(nonterm, psets, fsets, nullables, pvisited, fvisited)
-                    pset.update(fsets[nonterm])
+        return graph.all_minimal_cycles(self.nonTerminalsByName, edge_functor)
 
-        def follow(nonterm, psets, fsets, nullables, pvisited, fvisited):
-            if nonterm not in fvisited:
-                fvisited[nonterm] = True
-
-                # For all productions such that:
-                for prod in self.allProductions():
-                    numSymbols = len(prod.symbolUsages)
-                    for index, symUsage in enumerate(prod.symbolUsages):
-                        if index == numSymbols - 1:
-                            # we have:
-                            # B -> ..... A
-                            # So add every token in Follow(B) to Follow(A)
-                            follow(prod.nonterm, psets, fsets, nullables,
-                                   pvisited, fvisited)
-                            fsets[nonterm].update(fsets[prod.nonterm])
-                        else:
-                            nextSymUsage = prod.symbolUsages[index + 1]
-                            if nextSymUsage.isTerminal():
-                                # if we have:
-                                # X ->  ... A b ...
-                                # Add the terminal b to the follow set of A
-                                fsets[nonterm].add(nextSymUsage.symbol)
-                            else:
-                                # add Predict(B) to Follow(A)
-                                predict(prod.nonterm, psets, fsets, nullables,
-                                        pvisited, fvisited)
-                                fsets[nonterm].update(psets[prod.nonterm])
-
-        if type(startnt) is str:
-            startnt = self.symbolsByName[startnt]
-        nullables = nullables or self.nullables()
-        fsets = {}
-        psets = {}
-        fsets[startnt] = set((self.eofToken,))
-        predict(startnt, psets, fsets, nullables, {}, {})
-        return psets, fsets
+    def uselessProductions(self):
+        """
+        Returns all productions that are useless and can be removed.
+        """
 
     def detectLeftRecursion(self):
         """
@@ -370,13 +341,45 @@ class Grammar(object):
         """
         def edge_functor(node):
             for prod in node.productions:
-                if len(prod.symbolUsages) > 0:
-                    if prod.symbolUsages[0].symbol.isNonTerminal():
-                        yield prod.symbolUsages[0].symbol
+                for symUsage in prod.symbolUsages:
+                    if symUsage.isNonTerminal:
+                        yield symUsage.symbol
+                    if not symUsage.isOptional:
+                        break
 
-        # return graph.tarjan(self.nonTerminals(), edge_functor)
-        return graph.all_minimal_cycles(self.nonTerminals(), edge_functor)
+        return graph.all_minimal_cycles(self.nonTerminalsByName, edge_functor)
+
+    def removeCycles(self):
+        """
+        Returns an equivalent grammar with cycles removed.
+        """
+        cycles = self.detectCycles()
+        if not cycles:
+            return None
+
+        visited = set()
+        non_cycle_prods = {}
+        for cycle in cycles:
+            # todo - see if we need to convert the cycle into a set
+            # for fast lookups
+            for nonterm in cycle:
+                if nonterm not in visited:
+                    # get all productions for this nonterm which does *not* begin
+                    # with any other nonterms in the cycle
+                    for prod in self.productionsFor(nonterm):
+                        if len(prod) > 1 or prod[0].isTerminal or prod not in cycle:
+                            if nonterm not in non_cycle_prods:
+                                non_cycle_prods[nonterm] = []
+                            non_cycle_prods[nonterm].append(prod)
+
+        # now for all nonterm prods
+        pudb.set_trace()
 
     def eliminateLeftRecursion(self):
         pass
 
+    def eliminateNullProductions(self, nullables=None):
+        """
+        Return a grammar with null productions removed
+        """
+        nullables = nullables or self.nullables()

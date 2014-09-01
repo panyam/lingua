@@ -218,18 +218,16 @@ class Parser(object):
     def getNonTerm(self, G):
         ntname = self.expectAndAdvanceToken(TOKEN_IDENT)
         nttype = self.getNonTermType()
-        nonterm = G.addSymbol(ntname, nttype)
+        nonterm = G.addNonTerminal(ntname, nttype)
 
         # Get the productions
         if self.peekToken() == TOKEN_OBRACE:
-            self.advanceToken(TOKEN_OBRACE)
+            self.advanceToken()
             while self.peekToken() != TOKEN_CBRACE:
-                production = self.getProduction(G, nonterm)
-                nonterm.addProduction(production)
+                self.getProduction(G, nonterm)
             self.expectAndAdvanceToken(TOKEN_CBRACE)
         elif self.peekToken() == TOKEN_ARROW:
-            production = self.getProduction(G, nonterm, False)
-            nonterm.addProduction(production)
+            self.getProduction(G, nonterm, False)
         return nonterm
 
     def getNonTermType(self):
@@ -255,7 +253,8 @@ class Parser(object):
 
             if self.peekToken() == TOKEN_BLOCK:
                 handler = self.advanceToken()
-        return grammar.Production(nonterm, symbols, handler)
+        production = grammar.Production(symbols, handler)
+        G.addProduction(nonterm, production)
 
     def getSymbolUsage(self, G, insideBlock=True):
         symbolName = None
@@ -275,7 +274,10 @@ class Parser(object):
         if self.peekToken() == TOKEN_COLON:
             self.advanceToken()
             symbolVar = self.expectAndAdvanceToken(TOKEN_IDENT)
-        symbol = G.addSymbol(symbolName)
+        if G.isNonTerminal(symbolName):
+            symbol = G.addTerminal(symbolName)
+        else:
+            symbol = G.addNonTerminal(symbolName)
         return grammar.SymbolUsage(symbol, symbolVar, isOptional)
 
 
