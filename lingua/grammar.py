@@ -78,9 +78,36 @@ class Production(object):
                 symbols[index] = SymbolUsage(symbol)
         self.symbolUsages = symbols
         self.handler = handler
+        self._numSymbols = len(self.symbolUsages)
+
+        # optionalTo[i] is True if symbols 0 to i (inclusive) are ALL optional
+        # optionalFrom[i] is True if symbols i to end (inclusive) are ALL optional
+        isOptional = [su.isOptional for su in self.symbolUsages]
+        optionalTo = isOptional[:]
+        optionalFrom = isOptional[:]
+        for index, _ in enumerate(optionalTo):
+            optionalTo[index] = self.symbolUsages[index].isOptional
+            if index > 0:
+                optionalTo[index] = optionalTo[index] and optionalTo[index - 1]
+        for i in xrange(self.numSymbols - 1, -1, -1):
+            optionalFrom[i] = self.symbolUsages[i].isOptional
+            if i < self.numSymbols - 1:
+                optionalFrom[i] = optionalFrom[i] and optionalFrom[i + 1]
+        self.optionalTo = optionalTo
+        self.optionalFrom = optionalFrom
 
     def __repr__(self):
         return "%s -> %s" % (self.nonterm, " ".join(map(str, self.symbolUsages)))
+
+    def isOptionalTo(self, index):
+        if index < 0:
+            return True
+        return self.optionalTo[index]
+
+    def isOptionalFrom(self, index):
+        if index >= len(self.symbolUsages):
+            return True
+        return self.optionalFrom[index]
 
     def copy(self, grammar=None):
         outsym = self.nonterm
@@ -91,6 +118,10 @@ class Production(object):
     def setPredictSet(self, newset=None):
         newset = newset or set()
         self.predictSet = newset
+
+    @property
+    def numSymbols(self):
+        return self._numSymbols
 
 
 class Reduction(object):
@@ -202,7 +233,7 @@ class Grammar(object):
             # first find all non terms that already have a
             # production with only null
             for prod in self.productionsFor(nonterm):
-                if prod.symbolUsages is None or len(prod.symbolUsages) == 0:
+                if prod.symbolUsages is None or prod.numSymbols == 0:
                     out.add(nonterm)
 
         # Find productions now that are of the form:
@@ -211,7 +242,7 @@ class Grammar(object):
         for name, nonterm in self.nonTerminalsByName.iteritems():
             if nonterm not in out:
                 for prod in self.productionsFor(nonterm):
-                    if len(prod.symbolUsages) == 1:
+                    if prod.numSymbols == 1:
                         symbol = prod.symbolUsages[0].symbol
                         if prod.symbolUsages[0].isOptional or  \
                                 (symbol.isNonTerminal and symbol in out):
@@ -239,7 +270,7 @@ class Grammar(object):
         for name, nonterm in self.nonTerminalsByName.iteritems():
             fset = out[nonterm] = set()
             for prod in self.productionsFor(nonterm):
-                if len(prod.symbolUsages) > 0:
+                if prod.numSymbols > 0:
                     symbol = prod.symbolUsages[0].symbol
                     if symbol.isTerminal:
                         fset.add(symbol)
@@ -297,7 +328,7 @@ class Grammar(object):
                 if nonterm not in visited:
                     visited[nonterm] = True
                     for prod in self.productionsFor(nonterm):
-                        nUsages = len(prod.symbolUsages)
+                        nUsages = prod.numSymbols
                         nullableFrom = [False] * nUsages
                         firstFrom = [set() for i in xrange(0, nUsages)]
                         for i in xrange(nUsages - 1, -1, -1):
@@ -342,7 +373,7 @@ class Grammar(object):
         firstSets = firstSets or self.firstSets(nullables)
         followSets = followSets or self.followSets(startnt, nullables, firstSets)
         for nonterm, prod in self.allProductions():
-            nUsages = len(prod.symbolUsages)
+            nUsages = prod.numSymbols
             nullableFrom = [False] * nUsages
             firstFrom = [set() for i in xrange(0, nUsages)]
             for i in xrange(nUsages - 1, -1, -1):
@@ -373,10 +404,25 @@ class Grammar(object):
         Returns all cycles.
         """
         def edge_functor(node):
+            """
+            Returns the edge of the given nonterm
+            For a nt such that:
+
+                S -> alpha1 X1 beta1 |
+                     alpha2 X2 beta2 |
+                     ...
+                     alphaN XN betaN |
+
+            S's neighbouring nodes would be Xk if all of alphak is optional
+            AND all of betak is optional
+            """
             for prod in self.productionsFor(node):
-                if len(prod.symbolUsages) == 1:
-                    if prod.symbolUsages[0].isNonTerminal:
-                        yield prod.symbolUsages[0].symbol
+                for i, su in enumerate(prod.symbolUsages):
+                    if prod.isOptionalTo(i - 1) and prod.isOptionalFrom(i + 1):
+                        if su.isNonTerminal:
+                            yield su.symbol, prod
+                    else:
+                        break
 
         return graph.all_minimal_cycles(self.nonTerminalsByIndex, edge_functor)
 
@@ -389,37 +435,46 @@ class Grammar(object):
             for prod in self.productionsFor(node):
                 for symUsage in prod.symbolUsages:
                     if symUsage.isNonTerminal:
-                        yield symUsage.symbol
+                        yield symUsage.symbol, prod
                     if not symUsage.isOptional:
                         break
 
-        return graph.all_minimal_cycles(self.nonTerminalsByName, edge_functor)
+        return graph.all_minimal_cycles(self.nonTerminalsByIndex, edge_functor)
 
     def removeCycles(self):
         """
         Returns an equivalent grammar with cycles removed.
         """
+        if self.nullable():
+            raise Exception("Grammar has null productions.  Cycle removal will not work")
+
         cycles = self.detectCycles()
         if not cycles:
             return None
 
-        visited = set()
+        # make a copy to alter and return
+        out = self.copy()
+
         non_cycle_prods = {}
         for cycle in cycles:
             # todo - see if we need to convert the cycle into a set
             # for fast lookups
+
+            # For each nonterm in the cycle
             for nonterm in cycle:
-                if nonterm not in visited:
-                    # get all productions for this nonterm which does *not* begin
-                    # with any other nonterms in the cycle
-                    for prod in self.productionsFor(nonterm):
-                        if len(prod) > 1 or prod[0].isTerminal or prod not in cycle:
-                            if nonterm not in non_cycle_prods:
-                                non_cycle_prods[nonterm] = []
-                            non_cycle_prods[nonterm].append(prod)
+                # get all productions for this nonterm which does *not* begin
+                # with any other nonterms in the cycle
+                for prod in self.productionsFor(nonterm):
+                    if prod.numSymbols != 1 and prod.symbolUsages(0):
+                        continue
+                    if len(prod) > 1 or prod[0].isTerminal or prod not in cycle:
+                        if nonterm not in non_cycle_prods:
+                            non_cycle_prods[nonterm] = []
+                        non_cycle_prods[nonterm].append(prod)
 
         # now for all nonterm prods
         pudb.set_trace()
+        return out
 
     def eliminateLeftRecursion(self):
         pass

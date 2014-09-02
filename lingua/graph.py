@@ -53,18 +53,22 @@ def all_minimal_cycles(nodes, edge_functor):
         if node not in in_a_cycle:
             start_node = node
             visited = {}
-            queue = [(node, [node])]
+            queue = [(node, [])]
             while queue:
                 node, cycle = queue.pop(0)
                 assert node is not None
                 for nextNode in set(edge_functor(node)):
+                    edgeData = None
+                    if type(nextNode) is tuple:
+                        nextNode, edgeData = nextNode
                     if nextNode == start_node:
                         # we have a cycle
-                        if cycle:
-                            in_a_cycle.update(cycle)
-                            cycles.append(cycle)
-                            cycle_count += 1
+                        cycle.append((edgeData, nextNode))
+                        in_a_cycle.update([n for e, n in cycle])
+                        cycles.append((start_node, cycle))
+                        cycle_count += 1
+                        cycle = cycle[:-1]
                     elif nextNode not in visited:
                         visited[nextNode] = True
-                        queue.append((nextNode, cycle[:] + [nextNode]))
+                        queue.append((nextNode, cycle[:] + [(edgeData, nextNode)]))
     return cycles
