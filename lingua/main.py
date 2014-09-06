@@ -106,7 +106,7 @@ class Tokenizer(object):
                 return TOKEN_ERROR, "Expected '>', Found: '%s'" % nextch
             else:
                 return TOKEN_ARROW, None
-        elif nextch.isalpha() or nextch == '_':
+        elif nextch.isalpha() or nextch.isdigit() or nextch == '_':
             tok, value, self.prevch = self.read_identifier(nextch)
             return tok, value
         # elif nextch == '"' or nextch == "'":
@@ -122,7 +122,7 @@ class Tokenizer(object):
     def read_identifier(self, strsofar=''):
         self.prevch = None
         nextch = self.nextChar()
-        while nextch.isalnum() or nextch == '_':
+        while nextch.isalnum() or nextch.isdigit() or nextch == '_':
             strsofar += nextch
             nextch = self.nextChar()
 
@@ -267,7 +267,7 @@ class Parser(object):
 
             if self.peekToken() == TOKEN_BLOCK:
                 handler = self.advanceToken()
-        production = grammar.Production(nonterm, symbols, handler)
+        production = grammar.Production(nonterm, grammar.SymbolString(symbols), handler)
         G.addProduction(nonterm, production)
 
     def getSymbolUsage(self, G, insideBlock=True):
