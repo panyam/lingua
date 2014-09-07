@@ -142,8 +142,7 @@ class SymbolString(object):
         self.symbols[index] = symbol
 
     def __iter__(self):
-        for x in self.symbols:
-            yield x
+        return iter(self.symbols)
 
 
 class Production(object):
@@ -153,12 +152,6 @@ class Production(object):
             rhs = SymbolString(rhs)
         self.rhs = rhs
         self.handler = handler
-
-    def __cmp__(self, other):
-        c = cmp(self.nonterm, other.nonterm)
-        if c != 0:
-            c = cmp(self.rhs, other.rhs)
-        return c
 
     def __repr__(self):
         return "%s -> %s" % (self.nonterm, repr(self.rhs))
@@ -201,11 +194,12 @@ class ProductionList(object):
         self.productions.append(production)
 
     def removeNullProductions(self, grammar):
+        nullables = grammar.nullables
         newprods = []
         for prod in self.productions:
             if prod.rhs.numSymbols > 0:
                 toadd = self.removeNullInProduction(prod, nullables)
-                newprods.extend([Production(nonterm, symbols, prod.handler) for symbols in toadd])
+                newprods.extend([Production(self.nonterm, symbols, prod.handler) for symbols in toadd])
         # TODO: sort by symbol and then remove duplicates and re
         # order by index
         # for prod in newprods:
@@ -218,10 +212,8 @@ class ProductionList(object):
         """
         self.productions.setProductions(newprods)
 
-
     def __iter__(self):
-        for x in self.productions:
-            yield x
+        return iter(self.productions)
 
     def __len__(self):
         return len(self.productions)
@@ -258,6 +250,18 @@ class Grammar(object):
         self.nonTerminalsByIndex = []
         self.productions = {}
         self.eofToken = Grammar.EOF
+        self.modified = True
+
+    @property
+    def modified(self):
+        return self._modified
+
+    @modified.setter
+    def modified(self):
+        self._firstSets = None
+        self._followSets = None
+        self._nullables = None
+        self._modified = True
 
     def copy(self):
         out = Grammar()
@@ -302,6 +306,7 @@ class Grammar(object):
             self.terminalsByIndex.append(symbol)
         symbol = self.terminalsByName[symbol]
         symbol.isTerminal = True
+        self.modified = True
         return symbol
 
     def addNonTerminal(self, symbol, resultType=None):
@@ -320,6 +325,7 @@ class Grammar(object):
             self.nonTerminalsByIndex.append(symbol)
         self.nonTerminalsByName[symbol.name] = symbol
         symbol.isTerminal = False
+        self.modified = True
         return symbol
 
     def addProduction(self, nonterm, production):
@@ -327,6 +333,7 @@ class Grammar(object):
         if nonterm not in self.productions:
             self.productions[nonterm] = ProductionList(nonterm)
         self.productions[nonterm].addProduction(production)
+        self.modified = True
 
     def findProduction(self, nonterm, symbols):
         if nonterm in self.productions:
@@ -350,10 +357,13 @@ class Grammar(object):
         else:
             return []
 
+    @property
     def nullables(self):
         """
         Get the nullable non terminals in the grammar.
         """
+        if self._nullables is not None:
+            return self._nullables
         out = set()
         for name, nonterm in self.nonTerminalsByName.iteritems():
             # first find all non terms that already have a
@@ -385,10 +395,14 @@ class Grammar(object):
                             out for su in prod.rhs]):
                         out.add(nonterm)
                         break
+        self._nullables = out
         return out
 
-    def firstSets(self, nullables=None):
-        nullables = nullables or self.nullables()
+    def firstSets(self):
+        if self._firstSets is not None:
+            return self._firstSets
+
+        nullables = self.nullables
         out = {}
 
         # Now look at productions of the form:
@@ -432,15 +446,19 @@ class Grammar(object):
         # and so on
         for nonterm in self.nonTerminalsByName:
             dfs(nonterm, set(), out, nullables)
+        self._firstSets = out
         return out
 
-    def followSets(self, startnt, nullables=None, firstSets=None):
+    def followSets(self, startnt):
+        if self._followSets is not None:
+            return self._followSets
+
         startnt = startnt or self.nonTerminalsByIndex[0]
         if type(startnt) is str:
             startnt = self.nonTerminalsByName[startnt]
 
-        nullables = nullables or self.nullables()
-        firstSets = firstSets or self.firstSets(nullables)
+        nullables = self.nullables
+        firstSets = self.firstSets
 
         follow = collections.defaultdict(set)
         follow[startnt] = set((self.eofToken,))
@@ -494,10 +512,10 @@ class Grammar(object):
                 break
         return follow
 
-    def evalPredictSets(self, startnt, nullables=None, firstSets=None, followSets=None):
-        nullables = nullables or self.nullables()
-        firstSets = firstSets or self.firstSets(nullables)
-        followSets = followSets or self.followSets(startnt, nullables, firstSets)
+    def evalPredictSets(self, startnt):
+        nullables = self.nullables
+        firstSets = self.firstSets
+        followSets = self.followSets
         for nonterm, prod in self.allProductions():
             nUsages = prod.rhs.numSymbols
             nullableFrom = [False] * nUsages
@@ -564,7 +582,6 @@ class Grammar(object):
                         yield symUsage.symbol, prod
                     if not symUsage.isOptional:
                         break
-
         return graph.all_minimal_cycles(self.nonTerminalsByIndex, edge_functor)
 
     def removeSymbols(self, symbols, invert=False):
