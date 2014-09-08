@@ -1,7 +1,35 @@
 # import itertools
 import graph
 import collections
-import pudb
+
+
+class TrieNode(object):
+    def __init__(self, key=None, parent=None):
+        self.key = key
+        self.values = []
+        self.parent = parent
+        self.children = []
+
+    def findNode(self, path, index=None, create=False):
+        """
+        Returns the node at the given path.
+        """
+        if index is None:
+            index = 0
+        if index >= len(path):
+            # we have reached the end
+            return self
+        for index, child in enumerate(self.children):
+            if child == path[index]:
+                return child.findNode(path, index + 1, create)
+
+        # no path existed so create if asked for it:
+        if not create:
+            return None
+
+        newnode = TrieNode(path[index], self)
+        self.children.append(newnode)
+        return newnode.findNode(path, index + 1, create)
 
 
 class Symbol(object):
@@ -124,7 +152,6 @@ class SymbolString(object):
         return self.numSymbols
 
     def __getitem__(self, index):
-        print "Index type: ", type(index)
         if type(index) is slice:
             return SymbolString(self.symbols[index])
         else:
@@ -166,6 +193,33 @@ class Production(object):
         newset = newset or set()
         self.predictSet = newset
 
+    def removeNullInProduction(self, grammar, start=0):
+        """
+        Given a production of the form:
+            A -> B C D
+
+        returns productions which are same as the above ones but with the
+        nullables removed.  If all of B C and D are nullable then the following
+        productions are added and returned:
+
+            A -> B | C | D | B C | B D | C D | B C D
+        """
+        nullables = grammar.nullables
+        if start >= self.rhs.numSymbols:
+            return []
+
+        su = self.rhs[start]
+        newsu = su.copy(grammar)
+        newsu.isOptional = False
+        rest = self.removeNullInProduction(grammar, start + 1)
+        rest = rest or [[]]
+        rest_with_sym = [[newsu] + r for r in rest]
+        if not su.isOptional and su.symbol not in nullables:
+            return rest_with_sym
+        else:
+            # clone rest
+            return rest + rest_with_sym
+
 
 class ProductionList(object):
     """
@@ -181,6 +235,7 @@ class ProductionList(object):
     def __init__(self, nonterm, productions=None):
         self.nonterm = nonterm
         self.productions = productions or []
+        self.prodsByPrefix = TrieNode()
 
     def copy(self, grammar=None):
         nonterm = self.nonterm
@@ -189,28 +244,44 @@ class ProductionList(object):
         prodcopy = [p.copy(grammar) for p in self.productions]
         return ProductionList(nonterm, prodcopy)
 
+    def __repr__(self):
+        return repr(self.productions)
+
     def addProduction(self, production):
         production.nonterm = self.nonterm
+        # add production if not a duplicate
+        for prod in self.productions:
+            if prod.handler == production.handler and \
+                    prod.rhs.numSymbols == production.rhs.numSymbols:
+                # check if symbols are same:
+                found = True
+                for sym1, sym2 in zip(prod.rhs, production.rhs):
+                    if cmp(sym1, sym2) != 0:
+                        found = False
+                        break
+                if found:
+                    return
         self.productions.append(production)
 
+    def removeProduction(self, production):
+        for index, prod in self.productions:
+            if prod == production:
+                del self.productions[index]
+                break
+
     def removeNullProductions(self, grammar):
-        nullables = grammar.nullables
-        newprods = []
         for prod in self.productions:
             if prod.rhs.numSymbols > 0:
-                toadd = self.removeNullInProduction(prod, nullables)
-                newprods.extend([Production(self.nonterm, symbols, prod.handler) for symbols in toadd])
-        # TODO: sort by symbol and then remove duplicates and re
-        # order by index
-        # for prod in newprods:
-            # only add this new production if it doesnt already exist
-        """
-        newprods = zip(xrange(0, len(newprods)), newprods)
-        newprods.sort(lambda x, y: cmp(x[1], y[1]))
-        newprods.sort(lambda x, y: cmp(x[0], y[0]))
-        newprods = [p for i,p in newprods]
-        """
-        self.productions.setProductions(newprods)
+                newprods = prod.removeNullInProduction(grammar)
+                for symbols in newprods:
+                    newprod = Production(self.nonterm, symbols, prod.handler)
+                    self.addProduction(newprod)
+
+        # remove null productions now
+        for index in xrange(len(self.productions) - 1, -1, -1):
+            prod = self.productions[index]
+            if prod.rhs.numSymbols == 0:
+                del self.productions[index]
 
     def __iter__(self):
         return iter(self.productions)
@@ -250,14 +321,13 @@ class Grammar(object):
         self.nonTerminalsByIndex = []
         self.productions = {}
         self.eofToken = Grammar.EOF
-        self.modified = True
+        self.setModified()
 
     @property
     def modified(self):
         return self._modified
 
-    @modified.setter
-    def modified(self):
+    def setModified(self):
         self._firstSets = None
         self._followSets = None
         self._nullables = None
@@ -306,7 +376,7 @@ class Grammar(object):
             self.terminalsByIndex.append(symbol)
         symbol = self.terminalsByName[symbol]
         symbol.isTerminal = True
-        self.modified = True
+        self.setModified()
         return symbol
 
     def addNonTerminal(self, symbol, resultType=None):
@@ -325,7 +395,7 @@ class Grammar(object):
             self.nonTerminalsByIndex.append(symbol)
         self.nonTerminalsByName[symbol.name] = symbol
         symbol.isTerminal = False
-        self.modified = True
+        self.setModified()
         return symbol
 
     def addProduction(self, nonterm, production):
@@ -333,7 +403,7 @@ class Grammar(object):
         if nonterm not in self.productions:
             self.productions[nonterm] = ProductionList(nonterm)
         self.productions[nonterm].addProduction(production)
-        self.modified = True
+        self.setModified()
 
     def findProduction(self, nonterm, symbols):
         if nonterm in self.productions:
@@ -663,7 +733,7 @@ class Grammar(object):
         print "Reachable Symbols: ", reachable_symbols
         self.removeSymbols(reachable_symbols, invert=True)
 
-    def removeNullProductions(self, nullables=None):
+    def removeNullProductions(self):
         """
         Return a grammar with null productions removed.
         Also note that all "optional" indicators will also be removed, ie
@@ -675,35 +745,9 @@ class Grammar(object):
         A -> C
         A -> B C
         """
-        nullables = nullables or self.nullables()
         for nonterm in self.nonTerminalsByIndex:
             self.productions[nonterm].removeNullProductions(self)
-
-    def removeNullInProduction(self, prod, nullables, start=0):
-        """
-        Given a production of the form:
-            A -> B C D
-
-        returns productions which are same as the above ones but with the
-        nullables removed.  If all of B C and D are nullable then the following
-        productions are added and returned:
-
-            A -> B | C | D | B C | B D | C D | B C D
-        """
-        if start >= prod.rhs.numSymbols:
-            return []
-
-        su = prod.rhs[start]
-        newsu = su.copy(self)
-        newsu.isOptional = False
-        rest = self.removeNullInProduction(prod, nullables, start + 1)
-        rest = rest or [[]]
-        rest_with_sym = [[newsu] + r for r in rest]
-        if not su.isOptional and su.symbol not in nullables:
-            return rest_with_sym
-        else:
-            # clone rest
-            return rest + rest_with_sym
+        self.setModified()
 
     def eliminateLeftRecursion(self):
         pass
@@ -712,15 +756,12 @@ class Grammar(object):
         """
         Returns an equivalent grammar with cycles removed.
         """
-        if self.nullable():
-            raise Exception("Grammar has null productions.  Cycle removal will not work")
-
         cycles = self.detectCycles()
         if not cycles:
-            return None
+            return False
 
-        # make a copy to alter and return
-        out = self.copy()
+        if self.nullable:
+            self.removeNullProductions()
 
         non_cycle_prods = {}
         for cycle in cycles:
@@ -739,6 +780,4 @@ class Grammar(object):
                             non_cycle_prods[nonterm] = []
                         non_cycle_prods[nonterm].append(prod)
 
-        # now for all nonterm prods
-        pudb.set_trace()
-        return out
+        return True
