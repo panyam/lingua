@@ -632,7 +632,8 @@ class Grammar(object):
             """
             for prod in self.productionsFor(node):
                 for i, su in enumerate(prod.rhs):
-                    if prod.isOptionalTo(i - 1) and prod.isOptionalFrom(i + 1):
+                    rhs = prod.rhs
+                    if rhs.isOptionalTo(i - 1) and rhs.isOptionalFrom(i + 1):
                         if su.isNonTerminal:
                             yield su.symbol, prod
                     else:
