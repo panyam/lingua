@@ -1,6 +1,7 @@
 # import itertools
 import graph
 import collections
+import ipdb
 
 
 class TrieNode(object):
@@ -55,9 +56,9 @@ class Symbol(object):
 
     def __repr__(self):
         if self.resultType:
-            return "<%s(%s)>" % (self.name, self.resultType)
+            return "%s(%s)" % (self.name, self.resultType)
         else:
-            return "<%s>" % self.name
+            return "%s" % self.name
 
     @property
     def isTerminal(self):
@@ -245,7 +246,7 @@ class ProductionList(object):
         return ProductionList(nonterm, prodcopy)
 
     def __repr__(self):
-        return repr(self.productions)
+        return " ; ".join(map(repr, self.productions))
 
     def addProduction(self, production):
         production.nonterm = self.nonterm
@@ -264,10 +265,13 @@ class ProductionList(object):
         self.productions.append(production)
 
     def removeProduction(self, production):
-        for index, prod in self.productions:
-            if prod == production:
-                del self.productions[index]
-                break
+        if type(production) is int:
+            del self.productions[production]
+        else:
+            for index, prod in self.productions:
+                if prod == production:
+                    del self.productions[index]
+                    break
 
     def removeNullProductions(self, grammar):
         for prod in self.productions:
@@ -282,6 +286,12 @@ class ProductionList(object):
             prod = self.productions[index]
             if prod.rhs.numSymbols == 0:
                 del self.productions[index]
+
+    def removeCycles(self, grammar, cycles=None):
+        """
+        Remove cycles from this set of productions.
+        """
+        cycles = cycles or grammar.cycles
 
     def __iter__(self):
         return iter(self.productions)
@@ -613,7 +623,8 @@ class Grammar(object):
             else:
                 print "Prod: %s, predSet: []" % (nonterm, prod)
 
-    def detectCycles(self):
+    @property
+    def cycles(self):
         """
         Returns all cycles.
         """
@@ -757,28 +768,34 @@ class Grammar(object):
         """
         Returns an equivalent grammar with cycles removed.
         """
-        cycles = self.detectCycles()
-        if not cycles:
-            return False
-
-        if self.nullable:
+        if self.nullables:
             self.removeNullProductions()
 
-        non_cycle_prods = {}
-        for cycle in cycles:
-            # todo - see if we need to convert the cycle into a set
-            # for fast lookups
+        while True:
+            cycles = self.cycles
+            if not cycles:
+                return
+            for start_sym, cycle in cycles:
+                # Find all non terminals in this cycle
+                cycle_symbols = set([sym for rule, sym in cycle])
 
-            # For each nonterm in the cycle
-            for nonterm in cycle:
-                # get all productions for this nonterm which does *not* begin
-                # with any other nonterms in the cycle
-                for prod in self.productionsFor(nonterm):
-                    if prod.rhs.numSymbols != 1 and prod.rhs[0]:
-                        continue
-                    if len(prod) > 1 or prod[0].isTerminal or prod not in cycle:
-                        if nonterm not in non_cycle_prods:
-                            non_cycle_prods[nonterm] = []
-                        non_cycle_prods[nonterm].append(prod)
+                # Find the union of all production of all
+                # non terminals in cycle_symbols
+                prod_union = []
+                for sym in cycle_symbols:
+                    for prod in self.productionsFor(sym):
+                        if prod.rhs.numSymbols != 1 or prod.rhs[0].symbol not in cycle_symbols:
+                            prod_union.append(prod)
 
-        return True
+                # For each non term in the cycle, add all productions in
+                # prod_union and remove all productions of the form:
+                # M -> N where M and N are BOTH in cycle_symbols
+                for rule, sym in cycle:
+                    prodlist = self.productions[sym]
+                    for index in xrange(len(prodlist.productions) - 1, -1, -1):
+                        prod = prodlist.productions[index]
+                        if prod.rhs.numSymbols == 1 or prod.rhs[0].symbol in cycle_symbols:
+                            self.productions[sym].removeProduction(index)
+
+                    for prod in prod_union:
+                        prodlist.addProduction(prod.copy(self))

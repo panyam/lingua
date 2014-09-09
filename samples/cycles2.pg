@@ -1,0 +1,4 @@
+
+S -> X | X b | Y a
+X -> Y | b
+Y -> X | a

@@ -7,6 +7,12 @@ X -> C
 
 Y -> S | a
 
+S -> A | x
+
+A -> Z | z
+
+Z -> S | s
+
 A -> B
 
 B -> C
@@ -18,3 +24,11 @@ D -> E | A
 M -> N b
 
 N -> M a
+
+S -> B 
+
+B -> C
+
+C -> D
+
+D -> S
