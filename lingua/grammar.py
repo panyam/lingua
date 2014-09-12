@@ -1,7 +1,8 @@
-# import itertools
 import graph
 import collections
-import ipdb
+from utils import enumeratex
+# import itertools
+# import ipdb
 
 
 class TrieNode(object):
@@ -102,38 +103,66 @@ class SymbolUsage(object):
                            self.symbol)
 
 
-class SymbolString(object):
+class SymbolString(list):
     """
     A symbol string.
     """
-    def __init__(self, symbols):
-        for index, symbol in enumerate(symbols):
-            if type(symbol) is str:
-                symbols[index] = SymbolUsage(symbol)
-        self.symbols = symbols
-        self._numSymbols = len(self.symbols)
+    def __init__(self, symbols=None):
+        super(SymbolString, self).__init__()
+        self.extend(symbols)
 
+    def validate(self, symbol):
+        if type(symbol) is str:
+            return SymbolUsage(Symbol(symbol))
+        elif type(symbol) is Symbol:
+            return SymbolUsage(symbol)
+        elif type(symbol) is SymbolUsage:
+            return symbol
+        else:
+            raise Exception("Only strings or Symbol types are allowed")
+
+    def revalOptionals(self):
+        symbols = self
+        self._numSymbols = len(symbols)
         # optionalTo[i] is True if symbols 0 to i (inclusive) are ALL optional
         # optionalFrom[i] is True if symbols i to end (inclusive) are ALL optional
-        isOptional = [su.isOptional for su in self.symbols]
+        isOptional = [su.isOptional for su in symbols]
         optionalTo = isOptional[:]
         optionalFrom = isOptional[:]
         for index, _ in enumerate(optionalTo):
-            optionalTo[index] = self.symbols[index].isOptional
+            optionalTo[index] = symbols[index].isOptional
             if index > 0:
                 optionalTo[index] = optionalTo[index] and optionalTo[index - 1]
         for i in xrange(self.numSymbols - 1, -1, -1):
-            optionalFrom[i] = self.symbols[i].isOptional
+            optionalFrom[i] = symbols[i].isOptional
             if i < self.numSymbols - 1:
                 optionalFrom[i] = optionalFrom[i] and optionalFrom[i + 1]
         self.optionalTo = optionalTo
         self.optionalFrom = optionalFrom
 
-    def copy(self, grammar=None):
-        return SymbolString([s.copy(grammar) for s in self.symbols])
+    def append(self, symbol):
+        symbol = self.validate(symbol)
+        super(SymbolString, self).append(symbol)
+        self.revalOptionals()
 
-    def __repr__(self):
-        return " ".join(map(str, self.symbols))
+    def insert(self, index, symbol):
+        symbol = self.validate(symbol)
+        super(SymbolString, self).insert(index, symbol)
+        self.revalOptionals()
+
+    def remove(self, symbol):
+        super(SymbolString, self).remove(symbol)
+        self.revalOptionals()
+
+    def extend(self, symbols):
+        symbols = symbols or []
+        for index, symbol in enumerate(symbols):
+            symbols[index] = self.validate(symbol)
+        super(SymbolString, self).extend(symbols)
+        self.revalOptionals()
+
+    def copy(self, grammar=None):
+        return SymbolString([s.copy(grammar) for s in self])
 
     def isOptionalTo(self, index):
         if index < 0:
@@ -141,7 +170,7 @@ class SymbolString(object):
         return self.optionalTo[index]
 
     def isOptionalFrom(self, index):
-        if index >= len(self.symbols):
+        if index >= len(self):
             return True
         return self.optionalFrom[index]
 
@@ -149,14 +178,18 @@ class SymbolString(object):
     def numSymbols(self):
         return self._numSymbols
 
-    def __len__(self):
-        return self.numSymbols
+    def __repr__(self):
+        return " ".join(map(str, self))
+
+    def __getslice__(self, start, end):
+        return self.__getitem__(slice(start, end))
 
     def __getitem__(self, index):
+        # result = self.symbols[index]
+        result = super(SymbolString, self).__getitem__(index)
         if type(index) is slice:
-            return SymbolString(self.symbols[index])
-        else:
-            return self.symbols[index]
+            result = SymbolString(result)
+        return result
 
     def __setitem__(self, index, symbol):
         if type(symbol) is str:
@@ -167,10 +200,9 @@ class SymbolString(object):
                 if type(symbol) is str:
                     symbols[index] = SymbolUsage(symbol)
             symbol = symbols
-        self.symbols[index] = symbol
-
-    def __iter__(self):
-        return iter(self.symbols)
+        super(SymbolString, self).__setitem__(index, symbol)
+        self.revalOptionals()
+        # self.symbols[index] = symbol
 
 
 class Production(object):
@@ -428,12 +460,12 @@ class Grammar(object):
             for prod in productions:
                 yield nonterm, prod
 
-    def productionsFor(self, nonterm):
+    def productionsFor(self, nonterm, reverse=False, indexed=False):
         name = nonterm
         if hasattr(nonterm, "name"):
             name = nonterm.name
         if name in self.productions:
-            return self.productions[name]
+            return enumeratex(self.productions[name], reverse, indexed)
         else:
             return []
 
@@ -478,6 +510,7 @@ class Grammar(object):
         self._nullables = out
         return out
 
+    @property
     def firstSets(self):
         if self._firstSets is not None:
             return self._firstSets
@@ -529,10 +562,7 @@ class Grammar(object):
         self._firstSets = out
         return out
 
-    def followSets(self, startnt):
-        if self._followSets is not None:
-            return self._followSets
-
+    def followSets(self, startnt=None):
         startnt = startnt or self.nonTerminalsByIndex[0]
         if type(startnt) is str:
             startnt = self.nonTerminalsByName[startnt]
@@ -592,10 +622,10 @@ class Grammar(object):
                 break
         return follow
 
-    def evalPredictSets(self, startnt):
+    def evalPredictSets(self, startnt=None):
         nullables = self.nullables
         firstSets = self.firstSets
-        followSets = self.followSets
+        followSets = self.followSets(startnt)
         for nonterm, prod in self.allProductions():
             nUsages = prod.rhs.numSymbols
             nullableFrom = [False] * nUsages
@@ -619,9 +649,9 @@ class Grammar(object):
                 pset.update(followSets[nonterm])
             prod.setPredictSet(pset)
             if pset:
-                print "Prod: %s, predSet: [%s]" % (nonterm, prod, " ".join(map(str, list(pset))))
+                print "Prod: %s, predSet: [%s]" % (prod, " ".join(map(str, list(pset))))
             else:
-                print "Prod: %s, predSet: []" % (nonterm, prod)
+                print "Prod: %s, predSet: []" % prod
 
     @property
     def cycles(self):
@@ -652,7 +682,8 @@ class Grammar(object):
 
         return graph.all_minimal_cycles(self.nonTerminalsByIndex, edge_functor)
 
-    def detectLeftRecursion(self):
+    @property
+    def leftRecursion(self):
         """
         Returns a set of "Starting" non terminals which have atleast
         one production containing left recursion.
@@ -666,7 +697,7 @@ class Grammar(object):
                         break
         return graph.all_minimal_cycles(self.nonTerminalsByIndex, edge_functor)
 
-    def removeSymbols(self, symbols, invert=False):
+    def removes(self, symbols, invert=False):
         """
         Removes all productions which contain symbols in the given symbol list.append
         If invert is True then productions with symbols NOT in the production
@@ -682,13 +713,12 @@ class Grammar(object):
                 del self.productions[nonterm.name]
 
         for nonterm in self.nonTerminalsByName:
-            productions = self.productions[nonterm]
-            for index in xrange(len(productions) - 1, -1, -1):
-                prod = productions[index]
+            prodlist = self.productions[nonterm]
+            for index, prod in enumeratex(prodlist, reverse=True, indexed=True):
                 for su in prod.rhs:
                     if (su.symbol in symbols and not invert) or \
                             (invert and su.symbol not in symbols):
-                        del productions[index]
+                        del prodlist[index]
                         break
 
     def terminalDerivingSymbols(self):
@@ -737,13 +767,13 @@ class Grammar(object):
         # remove them
         derives_terminal = self.terminalDerivingSymbols()
         print "Derives Terminals: ", derives_terminal
-        self.removeSymbols(derives_terminal, invert=True)
+        self.removes(derives_terminal, invert=True)
 
         # Now find symbols that cannot be derived from the start symbol
         # and remove them
         reachable_symbols = self.reachableSymbols(startnt)
         print "Reachable Symbols: ", reachable_symbols
-        self.removeSymbols(reachable_symbols, invert=True)
+        self.removes(reachable_symbols, invert=True)
 
     def removeNullProductions(self):
         """
@@ -761,8 +791,59 @@ class Grammar(object):
             self.productions[nonterm].removeNullProductions(self)
         self.setModified()
 
-    def eliminateLeftRecursion(self):
-        pass
+    def removeLeftRecursionFor(self, nonterm):
+        """
+        Removes direct left recursion for a particular non terminal if any.
+        For the given terminal, A, replaces the productions of the form:
+
+            A -> A a1 | A a2 ... | A an | b1 | b2 | b3 ... bm
+
+        with:
+
+            A -> b1 A' | b2 A' | ... bm A'
+            A' -> a1 A' | a2 A' | ... an A' | epsilon
+        """
+        if type(nonterm) is str:
+            nonterm = self.nonTerminalsByName[nonterm]
+        # First check if this NT has left recursive productions
+        isLeftRecursive = False
+        for prod in self.productionsFor(nonterm):
+            if prod.rhs[0].symbol == nonterm:
+                isLeftRecursive = True
+                break
+        if not isLeftRecursive:
+            return
+
+        # Add a new nonterminal that will be right recursive
+        count = 1
+        newname = nonterm.name + str(count)
+        while newname in self.nonTerminalsByName:
+            count += 1
+            newname = nonterm.name + str(count)
+        print "Using new nonterm: " + newname
+        newnonterm = Symbol(newname, nonterm.resultType)
+        self.addNonTerminal(newnonterm)
+
+        prodlist = self.productions[nonterm]
+        for index, prod in enumeratex(prodlist, indexed=True, reverse=True):
+            if prod.rhs[0].symbol == nonterm:
+                # we have a left recursion:
+                # A -> A ax
+                # So change to:
+                # remove rule and add following to A'
+                # A' -> ax A'
+                prodlist.removeProduction(index)
+                prod.rhs.append(SymbolUsage(newnonterm, prod.rhs[0].varname))
+                del prod.rhs[0]
+                self.addProduction(newnonterm, prod)
+            else:
+                # We have non left recursive rule:
+                # A -> bk
+                # Replace rule with:
+                # A -> bk A'
+                prod.rhs.append(newnonterm)
+        # finally add the epsilon production
+        self.addProduction(newnonterm, Production(newnonterm, []))
 
     def removeCycles(self):
         """
@@ -792,10 +873,57 @@ class Grammar(object):
                 # M -> N where M and N are BOTH in cycle_symbols
                 for rule, sym in cycle:
                     prodlist = self.productions[sym]
-                    for index in xrange(len(prodlist.productions) - 1, -1, -1):
-                        prod = prodlist.productions[index]
+                    for index, prod in self.productionsFor(sym, indexed=True, reverse=True):
                         if prod.rhs.numSymbols == 1 or prod.rhs[0].symbol in cycle_symbols:
-                            self.productions[sym].removeProduction(index)
+                            prodlist.removeProduction(index)
 
                     for prod in prod_union:
                         prodlist.addProduction(prod.copy(self))
+
+    def removeLeftRecursion(self, orderer=None):
+        """
+        Removes all left recursion.  If nullables or cycles exist,
+        those are removed first.
+
+        The removal of left recursion is based on Paull's algorithm and is
+        affected by the ordering of symbols.  The function to order the
+        symbols can be provided with the orderer parameter.  By default the
+        existing order is used.
+        """
+        if self.nullables:
+            self.removeNullProductions()
+
+        if self.cycles:
+            self.removeCycles()
+
+        symbols = self.nonTerminalsByIndex[:]
+        if orderer:
+            symbols = orderer(symbols)
+
+        for i, Ai in enumerate(symbols):
+            print "Symbol Ai: ", i, Ai
+            for j in xrange(i):
+                Aj = symbols[j]
+                aiprods = self.productions[Ai]
+                for ai, aiprod in enumeratex(aiprods, indexed=True, reverse=True):
+                    if aiprod.rhs[0].symbol == Aj:
+                        aiprods.removeProduction(ai)
+                        ajprods = self.productions[Aj]
+                        for ajprod in enumeratex(ajprods):
+                            # replace this production:
+                            # Ai -> Aj x
+                            #
+                            # with
+                            #
+                            # Ai -> b1 x
+                            # Ai -> b2 x
+                            #   ....
+                            # Ai -> bn x
+                            #
+                            # where
+                            # Aj -> b1 | b2 | ... | bn
+                            newsyms = ajprod.rhs[:] + aiprod.rhs[1:]
+                            newprod = Production(Ai, newsyms, aiprod.handler)
+                            aiprods.addProduction(newprod)
+            # Remove left recursion from Ai production if any
+            self.removeLeftRecursionFor(Ai)

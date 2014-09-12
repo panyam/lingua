@@ -4,9 +4,11 @@
 import StringIO
 import grammar
 import graph
+import utils
 
 reload(grammar)
 reload(graph)
+reload(utils)
 
 TOKEN_ERROR = -1
 TOKEN_EOF = 0
