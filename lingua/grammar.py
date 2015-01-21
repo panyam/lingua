@@ -1,37 +1,6 @@
 import graph
 import collections
-from utils import enumeratex
-# import itertools
-# import ipdb
-
-
-class TrieNode(object):
-    def __init__(self, key=None, parent=None):
-        self.key = key
-        self.values = []
-        self.parent = parent
-        self.children = []
-
-    def findNode(self, path, index=None, create=False):
-        """
-        Returns the node at the given path.
-        """
-        if index is None:
-            index = 0
-        if index >= len(path):
-            # we have reached the end
-            return self
-        for index, child in enumerate(self.children):
-            if child == path[index]:
-                return child.findNode(path, index + 1, create)
-
-        # no path existed so create if asked for it:
-        if not create:
-            return None
-
-        newnode = TrieNode(path[index], self)
-        self.children.append(newnode)
-        return newnode.findNode(path, index + 1, create)
+from utils import enumeratex, TrieNode
 
 
 class Symbol(object):
@@ -791,7 +760,7 @@ class Grammar(object):
             self.productions[nonterm].removeNullProductions(self)
         self.setModified()
 
-    def removeLeftRecursionFor(self, nonterm):
+    def removeLeftRecursionFor(self, nonterm, newnamefunc=None):
         """
         Removes direct left recursion for a particular non terminal if any.
         For the given terminal, A, replaces the productions of the form:
@@ -815,12 +784,16 @@ class Grammar(object):
             return
 
         # Add a new nonterminal that will be right recursive
-        count = 1
-        newname = nonterm.name + str(count)
-        while newname in self.nonTerminalsByName:
-            count += 1
+        def default_newnamefunc(ntname):
+            count = 1
             newname = nonterm.name + str(count)
-        print "Using new nonterm: " + newname
+            while newname in self.nonTerminalsByName:
+                count += 1
+                newname = nonterm.name + str(count)
+            return newname
+
+        newnamefunc = newnamefunc or default_newnamefunc
+        newname = newnamefunc(nonterm.name)
         newnonterm = Symbol(newname, nonterm.resultType)
         self.addNonTerminal(newnonterm)
 
@@ -902,8 +875,16 @@ class Grammar(object):
 
         for i, Ai in enumerate(symbols):
             print "Symbol Ai: ", i, Ai
+            if Ai not in self.productions:
+                continue
             for j in xrange(i):
                 Aj = symbols[j]
+                if j == 174:
+                    import ipdb
+                    ipdb.set_trace()
+                if Aj not in self.productions:
+                    continue
+                print "Symbol Aj: ", j, Aj
                 aiprods = self.productions[Ai]
                 for ai, aiprod in enumeratex(aiprods, indexed=True, reverse=True):
                     if aiprod.rhs[0].symbol == Aj:
@@ -914,11 +895,7 @@ class Grammar(object):
                             # Ai -> Aj x
                             #
                             # with
-                            #
-                            # Ai -> b1 x
-                            # Ai -> b2 x
-                            #   ....
-                            # Ai -> bn x
+                            # Ai -> b1 x | b2 x | ... | bn x
                             #
                             # where
                             # Aj -> b1 | b2 | ... | bn

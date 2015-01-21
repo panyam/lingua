@@ -1,0 +1,64 @@
+
+postfix_expression {
+    ->  primary_expression ;
+    ->  postfix_expression   postfix_operator ;
+    ->  function_call_expression ;
+    ->  initializer_expression ;
+    ->  explicit_member_expression ;
+    ->  postfix_self_expression ;
+    ->  dynamictype_expression ;
+    ->  subscript_expression ;
+    ->  forced_value_expression ;
+    ->  optional_chaining_expression ;
+}
+
+function_call_expression {
+    ->  postfix_expression   parenthesized_expression ;
+    ->  postfix_expression   trailing_closure ;
+    ->  postfix_expression   parenthesized_expression trailing_closure ;
+}
+
+trailing_closure {
+    ->  closure_expression ;
+}
+
+initializer_expression {
+    ->  postfix_expression   TOKEN_DOT     TOKEN_INIT ;
+}
+
+explicit_member_expression {
+    ->  postfix_expression   TOKEN_DOT     TOKEN_INT ;
+    ->  postfix_expression   TOKEN_DOT     TOKEN_IDENTIFIER  ;
+    ->  postfix_expression   TOKEN_DOT     TOKEN_IDENTIFIER  generic_argument_clause ;
+}
+
+postfix_self_expression {
+    ->  postfix_expression   TOKEN_DOT     TOKEN_SELF ;
+}
+
+dynamictype_expression {
+    ->  postfix_expression   TOKEN_DOT     TOKEN_DYNAMICTYPE ;
+}
+
+subscript_expression {
+    ->  postfix_expression   TOKEN_OSQUARE   expression_list  TOKEN_CSQUARE ;
+}
+
+forced_value_expression {
+    ->  postfix_expression   TOKEN_NOT;
+}
+
+optional_chaining_expression {
+    ->  postfix_expression   TOKEN_QMARK ;
+}
+
+primary_expression {
+    ->  TOKEN_IDENTIFIER  ;
+    ->  TOKEN_IDENTIFIER  generic_argument_clause ;
+    ->  literal_expression ;
+    ->  self_expression ;
+    ->  super_expression ;
+    ->  closure_expression ;
+    ->  parenthesized_expression ;
+    ->  implicit_member_expression ;
+}

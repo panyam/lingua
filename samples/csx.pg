@@ -1,0 +1,9 @@
+
+Prog -> OBRACE 	Stmts 	CBRACE
+Stmts -> Stmt Stmts | ;
+
+Stmt -> ID EQUALS Expr SEMICOLON ;
+Stmt -> IF OPAREN Expr CPAREN Stmt
+Expr -> ID Etail
+Etail -> PLUS Expr | MINUS Expr | ;
+

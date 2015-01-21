@@ -1,0 +1,48 @@
+
+interface Tokenizer
+{
+    /**
+     * Returns the current line the tokenizer is pointing at.
+     */
+    public int currentLine();
+
+    /**
+     * Returns the current column the tokenizer is pointing at.
+     */
+    public int currentColumn();
+
+    /**
+     * Returns the value of the last token read.
+     */
+    public int tokenType();
+
+    /**
+     * Returns the value of the last token read.
+     */
+    public Object tokenValue();
+
+    /**
+     * Moves the tokenizer forward to the next token.
+     * Returns true if token exists otherwise false if end of stream reached.
+     */
+    public boolean moveForward();
+}
+
+/**
+ * Template for a simple java based parser generator.  The grammar provided is G that needs to be generated.
+ * O notes all the options for the generated file/class etc.
+ */
+public class {{config.parserClassName}}
+{
+    protected Tokenizer tokenizer;
+    public void setTokenizer(Tokenizer t) { tokenizer = t; }
+    public Tokenizer getTokenizer() { return tokenizer; }
+
+    {% for nonterm in G.nonTerminalsByIndex %}
+    public void parse_{{nonterm}}()
+    {
+        // For each rule
+    }
+    {% endfor %}
+}
+
