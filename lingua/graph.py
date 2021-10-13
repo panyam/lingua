@@ -47,7 +47,6 @@ def all_minimal_cycles(nodes, edge_functor):
     # Tells which cycle a node is assigned to if any
     cycles = []
     in_a_cycle = set()
-    cycle_count = 0
     for node in nodes:
         # start from node and do a BFS to see what cycle a node appears in
         if node not in in_a_cycle:
@@ -66,7 +65,6 @@ def all_minimal_cycles(nodes, edge_functor):
                         cycle.append((edgeData, nextNode))
                         in_a_cycle.update([n for e, n in cycle])
                         cycles.append((start_node, cycle))
-                        cycle_count += 1
                         cycle = cycle[:-1]
                     elif nextNode not in visited:
                         visited[nextNode] = True

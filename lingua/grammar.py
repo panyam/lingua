@@ -668,7 +668,7 @@ class Grammar(object):
 
     def removes(self, symbols, invert=False):
         """
-        Removes all productions which contain symbols in the given symbol list.append
+        Removes all productions which contain symbols in the given symbol list.
         If invert is True then productions with symbols NOT in the production
         are removed.
         Null productions are not affected.
